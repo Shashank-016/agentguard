@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# AgentGuard runtime files
+agentguard.db
+agentguard_audit.jsonl
+*.jsonl
+*.db
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node / dashboard
+dashboard/node_modules/
+dashboard/dist/
+
+# Env files
+.env
+.env.local
+*.env

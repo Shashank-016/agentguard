@@ -1,0 +1,62 @@
+version: "1"
+
+# Tool policy file for AgentGuard.
+# Copy this file to policy.yaml and pass it to GuardedClient or AgentGuardCallback.
+#
+# Structure:
+#   agents:
+#     <agent_id>:
+#       allowed_tools: [list]  # Explicit allowlist. Omit for wildcard.
+#       denied_tools:  [list]  # Always checked first — deny beats allow.
+#       rate_limits:
+#         <tool_name>: <count>/<unit>   # unit: second | minute | hour | day
+
+agents:
+  researcher:
+    allowed_tools:
+      - web_search
+      - read_file
+      - list_directory
+    denied_tools:
+      - write_file
+      - execute_code
+      - run_command
+      - send_email
+    rate_limits:
+      web_search: 10/minute
+      read_file: 30/minute
+
+  writer:
+    allowed_tools:
+      - write_file
+      - read_file
+    denied_tools:
+      - web_search
+      - execute_code
+      - run_command
+
+  analyst:
+    allowed_tools:
+      - read_file
+      - list_directory
+      - web_search
+      - run_query
+    denied_tools:
+      - write_file
+      - execute_code
+      - delete_file
+    rate_limits:
+      run_query: 20/minute
+      web_search: 5/minute
+
+  # Lockdown profile for untrusted sessions.
+  sandboxed:
+    allowed_tools:
+      - read_file
+    denied_tools:
+      - write_file
+      - execute_code
+      - web_search
+      - send_email
+      - delete_file
+      - run_command

@@ -76,6 +76,85 @@ response = client.messages.create(
 )
 ```
 
+### Async usage
+
+```python
+import anthropic
+from agentguard import AsyncGuardedClient
+
+# Drop-in replacement for anthropic.AsyncAnthropic()
+client = AsyncGuardedClient(
+    anthropic.AsyncAnthropic(),
+    agent_id="researcher",
+    mode="observe",
+)
+
+# Use exactly as before — same interface, full async
+response = await client.messages.create(
+    model="claude-haiku-4-5-20251001",
+    max_tokens=1024,
+    messages=[{"role": "user", "content": user_input}],
+)
+
+# Streaming also supported
+async with client.messages.stream(model=..., messages=...) as stream:
+    async for text in stream.text_stream:
+        print(text, end="", flush=True)
+```
+
+`AsyncGuardedClient` intercepts all `messages.create()` and `messages.stream()` calls,
+scanning for injection, enforcing policy, and tracking trust — all without blocking the
+event loop. Every attribute not explicitly intercepted (`beta`, `models`, etc.) is
+transparently proxied to the underlying `AsyncAnthropic` instance.
+
+### MCP Proxy
+
+AgentGuard can run as a **transparent MCP proxy** — sitting between your agent and any
+MCP server, validating every tool call without requiring changes to your agent code.
+
+#### Stdio proxy (wrap any MCP CLI server)
+
+In your MCP client config, replace the upstream command with AgentGuard:
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "agentguard",
+      "args": [
+        "mcp", "proxy", "stdio",
+        "--upstream-cmd", "npx -y @modelcontextprotocol/server-filesystem /tmp",
+        "--agent-id", "my-agent",
+        "--policy", "policy.yaml",
+        "--mode", "enforce"
+      ]
+    }
+  }
+}
+```
+
+#### HTTP/SSE proxy (wrap any remote MCP server)
+
+```bash
+agentguard mcp proxy sse \
+    --upstream-url http://mcp-server:3000 \
+    --port 8899 \
+    --agent-id my-agent \
+    --mode enforce
+```
+
+Then point your agent at `http://localhost:8899` instead of the real server.
+
+#### What the proxy checks
+
+Every `tools/call` request is evaluated against:
+- **Injection detector** — scans tool arguments for injected instructions
+- **Tool policy** — validates the tool name against your `policy.yaml` allow/deny lists
+- **Trust scorer** — flags sensitive tool calls in low-trust sessions
+
+All other MCP methods (`tools/list`, `resources/read`, etc.) are logged and forwarded
+without blocking.
+
 ### LangGraph callback
 
 ```python
@@ -176,13 +255,13 @@ When trust drops below 0.5, any attempt to call a sensitive tool (write, execute
 
 ## Roadmap
 
-- [ ] **Streaming support** — intercept `messages.stream()` for real-time token-level scanning
+- [x] **Async GuardedClient** — `AsyncGuardedClient` wraps `AsyncAnthropic` for async codebases
+- [x] **Streaming support** — `GuardedStream` / `AsyncGuardedStream` intercept `messages.stream()`
+- [x] **MCP server integration** — transparent stdio + SSE proxy for Model Context Protocol
 - [ ] **OpenTelemetry export** — emit spans/traces to any OTEL-compatible backend
-- [ ] **MCP server integration** — instrument Model Context Protocol tool calls
 - [ ] **Multi-process bus** — Redis-backed EventBus for distributed agent deployments
 - [ ] **Slack/PagerDuty alerting** — push critical events to on-call channels
 - [ ] **SARIF export** — machine-readable security findings for CI integration
-- [ ] **Async GuardedClient** — wrap `AsyncAnthropic` for async codebases
 - [ ] **Policy hot-reload** — watch policy.yaml for changes without restart
 
 ---

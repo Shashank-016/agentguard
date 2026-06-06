@@ -69,11 +69,21 @@ class EventBus:
                 pass
 
     async def emit_async(self, event: SecurityEvent) -> None:
-        """Async variant — awaits persistence before returning."""
+        """Async-safe emit. Use this from async contexts (AsyncGuardedClient, MCP proxy, etc.)"""
         self._buffer.append(event)
+        logger.debug(
+            "[AgentGuard] %s: %s → %s  flags=%s",
+            event.event_type,
+            event.agent_id,
+            event.severity.upper(),
+            event.flags,
+        )
         for fn in self._subscribers:
             try:
-                fn(event)
+                if asyncio.iscoroutinefunction(fn):
+                    await fn(event)
+                else:
+                    fn(event)
             except Exception:
                 logger.exception("EventBus subscriber raised an exception")
         if self._store:

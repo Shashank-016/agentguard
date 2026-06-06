@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 EventType = Literal[
     "llm_call",
+    "llm_call_complete",
     "tool_call",
     "node_traversal",
     "injection_detected",
@@ -20,7 +21,7 @@ EventType = Literal[
 ]
 
 Severity = Literal["info", "warning", "critical"]
-Source = Literal["sdk", "langgraph"]
+Source = Literal["sdk", "langgraph", "mcp"]
 
 
 class SecurityEvent(BaseModel):

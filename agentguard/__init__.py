@@ -13,10 +13,22 @@ Quick start::
         agent_id="researcher",
         policy_path="policy.yaml",
     )
-    # Use exactly like anthropic.Anthropic():
     response = client.messages.create(model="claude-opus-4-7", ...)
+
+Async usage::
+
+    import anthropic
+    from agentguard import AsyncGuardedClient
+
+    client = AsyncGuardedClient(
+        anthropic.AsyncAnthropic(),
+        agent_id="researcher",
+        mode="observe",
+    )
+    response = await client.messages.create(model="claude-haiku-4-5-20251001", ...)
 """
 
+from .async_client import AsyncGuardedClient
 from .audit import AuditLogger
 from .bus import EventBus
 from .callbacks import AgentGuardCallback
@@ -27,6 +39,7 @@ from .store import EventStore
 __version__ = "0.1.0"
 __all__ = [
     "GuardedClient",
+    "AsyncGuardedClient",
     "AgentGuardCallback",
     "AgentGuardException",
     "AuditLogger",

@@ -1,13 +1,14 @@
-"""GuardedClient — drop-in wrapper around anthropic.Anthropic with security instrumentation."""
+"""AsyncGuardedClient — drop-in wrapper around anthropic.AsyncAnthropic with security instrumentation."""
 
 from __future__ import annotations
 
 import logging
 import uuid
-from typing import Any, Generator, Literal, Optional
+from typing import Any, AsyncGenerator, Literal, Optional
 
 from .audit import AuditLogger
 from .bus import EventBus
+from .client import AgentGuardException
 from .engine.injection import InjectionDetector
 from .engine.policy import ToolPolicyEngine
 from .engine.trust import TrustScorer
@@ -16,57 +17,58 @@ from .events import SecurityEvent, make_payload
 logger = logging.getLogger(__name__)
 
 
-class AgentGuardException(Exception):
-    """Raised in enforce mode when a security violation blocks execution."""
-
-
-class _SyncAccumulatingTextStream:
-    """Wraps a sync text stream and accumulates yielded chunks into a buffer."""
+class _AsyncAccumulatingTextStream:
+    """Wraps an async text stream and accumulates yielded chunks into a buffer."""
 
     def __init__(self, real_text_stream: Any, buffer: list[str]) -> None:
         self._real = real_text_stream
         self._buffer = buffer
 
-    def __iter__(self) -> Generator[str, None, None]:
-        for text in self._real:
+    def __aiter__(self) -> "_AsyncAccumulatingTextStream":
+        return self._gen()  # type: ignore[return-value]
+
+    async def _gen(self) -> AsyncGenerator[str, None]:  # type: ignore[override]
+        async for text in self._real:
             self._buffer.append(text)
             yield text
 
 
-class _SyncStreamProxy:
-    """Proxy around the real MessageStream that accumulates text chunks."""
+class _AsyncStreamProxy:
+    """Proxy around the real AsyncMessageStream that accumulates text chunks."""
 
     def __init__(self, real_stream: Any, buffer: list[str]) -> None:
         self._real = real_stream
         self._buffer = buffer
 
     @property
-    def text_stream(self) -> _SyncAccumulatingTextStream:
-        return _SyncAccumulatingTextStream(self._real.text_stream, self._buffer)
+    def text_stream(self) -> _AsyncAccumulatingTextStream:
+        return _AsyncAccumulatingTextStream(self._real.text_stream, self._buffer)
 
-    def get_final_message(self) -> Any:
-        return self._real.get_final_message()
+    async def get_final_message(self) -> Any:
+        """Await the final message from the underlying stream."""
+        return await self._real.get_final_message()
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._real, name)
 
 
-class GuardedStream:
-    """Sync context manager that wraps ``client.messages.stream()`` with security instrumentation.
+class AsyncGuardedStream:
+    """Async context manager that wraps ``client.messages.stream()`` with security instrumentation.
 
     Performs injection scanning before the stream opens, emits a ``llm_call`` event on
-    open, accumulates streamed text, and emits a ``llm_call_complete`` event on close.
+    open, accumulates streamed text, and emits a ``llm_call_complete`` event on close
+    (including a scan of the complete model output for output-side injection).
     """
 
-    def __init__(self, guard: "GuardedClient", **kwargs: Any) -> None:
+    def __init__(self, guard: "AsyncGuardedClient", **kwargs: Any) -> None:
         self._guard = guard
         self._kwargs = kwargs
         self._cm: Any = None
-        self._stream_proxy: Optional[_SyncStreamProxy] = None
+        self._stream_proxy: Optional[_AsyncStreamProxy] = None
         self._text_buffer: list[str] = []
         self._llm_event_id: str = ""
 
-    def __enter__(self) -> _SyncStreamProxy:
+    async def __aenter__(self) -> _AsyncStreamProxy:
         g = self._guard
         messages: list[dict] = self._kwargs.get("messages", [])
         tools: list[dict] = self._kwargs.get("tools", [])
@@ -80,7 +82,7 @@ class GuardedStream:
         self._llm_event_id = str(uuid.uuid4())
         injection_matches = g._injection_detector.scan_messages(scan_corpus)
 
-        g._bus.emit(
+        await g._bus.emit_async(
             SecurityEvent(
                 event_id=self._llm_event_id,
                 session_id=g.session_id,
@@ -106,7 +108,7 @@ class GuardedStream:
             )
             g._trust_scorer.record_injection_flag(g.session_id)
             trust_score = g._trust_scorer.score(g.session_id)
-            g._bus.emit(
+            await g._bus.emit_async(
                 SecurityEvent(
                     session_id=g.session_id,
                     agent_id=g.agent_id,
@@ -134,20 +136,21 @@ class GuardedStream:
                 )
 
         self._cm = g._client.messages.stream(**self._kwargs)
-        real_stream = self._cm.__enter__()
-        self._stream_proxy = _SyncStreamProxy(real_stream, self._text_buffer)
+        real_stream = await self._cm.__aenter__()
+        self._stream_proxy = _AsyncStreamProxy(real_stream, self._text_buffer)
         return self._stream_proxy
 
-    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> Any:
-        result = self._cm.__exit__(exc_type, exc_val, exc_tb)
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> Any:
+        result = await self._cm.__aexit__(exc_type, exc_val, exc_tb)
         if exc_type is None and self._stream_proxy is not None:
             g = self._guard
             accumulated_text = "".join(self._text_buffer)
+
             output_matches = g._injection_detector.scan(accumulated_text)
 
             tool_calls: list[dict] = []
             try:
-                final_msg = self._stream_proxy.get_final_message()
+                final_msg = await self._stream_proxy.get_final_message()
                 if hasattr(final_msg, "content"):
                     tool_calls = [
                         {
@@ -160,13 +163,14 @@ class GuardedStream:
             except Exception:
                 logger.debug("Could not retrieve final message after stream close")
 
-            g._bus.emit(
+            complete_severity = "critical" if output_matches else "info"
+            await g._bus.emit_async(
                 SecurityEvent(
                     session_id=g.session_id,
                     agent_id=g.agent_id,
                     source="sdk",
                     event_type="llm_call_complete",
-                    severity="critical" if output_matches else "info",
+                    severity=complete_severity,
                     payload=make_payload(
                         text=accumulated_text,
                         tool_calls=tool_calls,
@@ -176,40 +180,35 @@ class GuardedStream:
                     parent_event_id=self._llm_event_id,
                 )
             )
+
         return result
 
 
-class GuardedMessages:
-    """Proxy for ``client.messages`` that intercepts ``.create()`` calls.
+class AsyncGuardedMessages:
+    """Proxy for ``client.messages`` that intercepts async ``.create()`` and ``.stream()`` calls."""
 
-    Performs pre-call security checks (injection scan, policy check) and
-    post-call event emission (tool call tracking) without altering the
-    underlying response object.
-    """
-
-    def __init__(self, guard: "GuardedClient") -> None:
+    def __init__(self, guard: "AsyncGuardedClient") -> None:
         self._guard = guard
         self._underlying = guard._client.messages
 
-    def create(self, **kwargs: Any) -> Any:
-        """Intercept a messages.create call to perform security checks."""
+    async def create(self, **kwargs: Any) -> Any:
+        """Intercept an async messages.create call to perform security checks."""
         g = self._guard
         messages: list[dict] = kwargs.get("messages", [])
         tools: list[dict] = kwargs.get("tools", [])
         system: str = kwargs.get("system", "")
         model: str = kwargs.get("model", "unknown")
 
-        # Build a scan corpus that includes the system prompt.
         scan_corpus = messages.copy()
         if system:
             scan_corpus = [{"role": "system", "content": system}] + scan_corpus
 
         llm_event_id = str(uuid.uuid4())
 
-        # --- 1. Injection scan --------------------------------------------
+        # --- 1. Injection scan
         injection_matches = g._injection_detector.scan_messages(scan_corpus)
 
-        # --- 2. Tool policy check -----------------------------------------
+        # --- 2. Tool policy check
         policy_violations: list[str] = []
         for tool_def in tools:
             tool_name = tool_def.get("name", "unknown")
@@ -219,8 +218,8 @@ class GuardedMessages:
                     f"{tool_name}: {result.reason} [{result.rule_name}]"
                 )
 
-        # --- 3. Emit llm_call event ----------------------------------------
-        g._bus.emit(
+        # --- 3. Emit llm_call event
+        await g._bus.emit_async(
             SecurityEvent(
                 event_id=llm_event_id,
                 session_id=g.session_id,
@@ -243,18 +242,18 @@ class GuardedMessages:
             len(tools),
         )
 
-        # --- 4. Injection events -------------------------------------------
+        # --- 4. Injection events
         if injection_matches:
             flags = [m.flag for m in injection_matches]
-            max_severity = "critical" if any(
-                m.severity == "critical" for m in injection_matches
-            ) else "warning"
-
-            # Update trust state.
+            max_severity = (
+                "critical"
+                if any(m.severity == "critical" for m in injection_matches)
+                else "warning"
+            )
             g._trust_scorer.record_injection_flag(g.session_id)
             trust_score = g._trust_scorer.score(g.session_id)
 
-            g._bus.emit(
+            await g._bus.emit_async(
                 SecurityEvent(
                     session_id=g.session_id,
                     agent_id=g.agent_id,
@@ -290,9 +289,9 @@ class GuardedMessages:
                     f"Injection detected in enforce mode — call blocked. Flags: {flags}"
                 )
 
-        # --- 5. Policy violation events -----------------------------------
+        # --- 5. Policy violations
         if policy_violations:
-            g._bus.emit(
+            await g._bus.emit_async(
                 SecurityEvent(
                     session_id=g.session_id,
                     agent_id=g.agent_id,
@@ -315,20 +314,19 @@ class GuardedMessages:
                     f"Violations: {policy_violations}"
                 )
 
-        # --- 6. Actual API call -------------------------------------------
-        response = self._underlying.create(**kwargs)
+        # --- 6. Actual API call
+        response = await self._underlying.create(**kwargs)
 
-        # --- 7. Emit tool_call events for each tool use block in response ---
+        # --- 7. Emit tool_call events for each tool use block in response
         if hasattr(response, "content"):
             for block in response.content:
                 if getattr(block, "type", None) == "tool_use":
                     tool_name = getattr(block, "name", "unknown")
                     tool_input = getattr(block, "input", {})
 
-                    # Trust check before tool execution.
                     if g._trust_scorer.should_flag(g.session_id, tool_name):
                         trust_score = g._trust_scorer.score(g.session_id)
-                        g._bus.emit(
+                        await g._bus.emit_async(
                             SecurityEvent(
                                 session_id=g.session_id,
                                 agent_id=g.agent_id,
@@ -348,20 +346,12 @@ class GuardedMessages:
                                 metadata={"trust_score": trust_score},
                             )
                         )
-                        logger.warning(
-                            "[AgentGuard] trust_flag: %s -> WARNING\n  reason: low-trust "
-                            "session (score=%.2f) attempting %s",
-                            g.agent_id,
-                            trust_score,
-                            tool_name,
-                        )
 
-                    # Policy check for the actual tool being called.
                     policy_result = g._policy_engine.check(g.agent_id, tool_name)
                     tool_severity = "info" if policy_result.allowed else "critical"
                     tool_flags = [] if policy_result.allowed else [policy_result.rule_name]
 
-                    g._bus.emit(
+                    await g._bus.emit_async(
                         SecurityEvent(
                             session_id=g.session_id,
                             agent_id=g.agent_id,
@@ -381,44 +371,33 @@ class GuardedMessages:
                             parent_event_id=llm_event_id,
                         )
                     )
-                    log_msg = (
-                        "[AgentGuard] tool_call: %s.%s -> %s"
-                        if policy_result.allowed
-                        else "[AgentGuard] policy_violation: %s.%s -> CRITICAL\n  reason: %s"
-                    )
-                    if policy_result.allowed:
-                        logger.info(log_msg, g.agent_id, tool_name, "INFO")
-                    else:
-                        logger.error(log_msg, g.agent_id, tool_name, policy_result.reason)
 
         return response
 
-    def stream(self, **kwargs: Any) -> GuardedStream:
-        """Return a context manager that intercepts the streaming response."""
-        return GuardedStream(self._guard, **kwargs)
+    def stream(self, **kwargs: Any) -> AsyncGuardedStream:
+        """Return an async context manager that intercepts the streaming response."""
+        return AsyncGuardedStream(self._guard, **kwargs)
 
     def __getattr__(self, name: str) -> Any:
-        """Proxy any other attribute (e.g., .with_raw_response) unchanged."""
         return getattr(self._underlying, name)
 
 
-class GuardedClient:
-    """Drop-in replacement for ``anthropic.Anthropic`` with security observability.
+class AsyncGuardedClient:
+    """Drop-in replacement for ``anthropic.AsyncAnthropic`` with security observability.
 
-    Wraps the official Anthropic client, intercepting ``messages.create``
-    calls to perform injection detection, tool policy enforcement, and trust
-    scoring before and after each LLM call.
+    Wraps the official async Anthropic client, intercepting ``messages.create``
+    and ``messages.stream`` calls to perform injection detection, tool policy
+    enforcement, and trust scoring in a fully async context.
 
     Parameters
     ----------
     client:
-        An instantiated ``anthropic.Anthropic`` (or ``AsyncAnthropic``) client.
+        An instantiated ``anthropic.AsyncAnthropic`` client.
     session_id:
         Identifier grouping all events from a single agent run. Auto-generated
         if not provided.
     agent_id:
-        Logical name of the agent (e.g. ``"researcher"``). Used in policy
-        lookups and event records.
+        Logical name of the agent. Used in policy lookups and event records.
     policy_path:
         Path to a YAML policy file. If ``None``, all tools are permitted.
     bus:
@@ -428,37 +407,29 @@ class GuardedClient:
         ``"observe"`` (default) — detect and log, but never block.
         ``"enforce"`` — raise :class:`AgentGuardException` on any violation.
     trust_scorer:
-        Shared :class:`~agentguard.engine.trust.TrustScorer`. Useful when
-        multiple ``GuardedClient`` instances share a session.
+        Shared :class:`~agentguard.engine.trust.TrustScorer`.
     use_embeddings:
         Pass ``True`` to enable the embedding-based injection detection pass.
     audit_log:
-        Path to a JSONL audit file. Every event is appended to this file
-        durably and synchronously — survives process restarts. Defaults to
-        ``"agentguard_audit.jsonl"`` in the current directory when set to the
-        sentinel ``True``, or pass an explicit path string. Set to ``None``
-        (default) to disable file auditing and use the in-memory bus only.
+        Path to a JSONL audit file for durable event persistence.
 
     Example
     -------
     ::
 
         import anthropic
-        from agentguard import GuardedClient
+        from agentguard import AsyncGuardedClient
 
-        raw_client = anthropic.Anthropic()
-        client = GuardedClient(
-            raw_client,
+        client = AsyncGuardedClient(
+            anthropic.AsyncAnthropic(),
             agent_id="researcher",
-            policy_path="policy.yaml",
-            audit_log="logs/audit.jsonl",  # durable, survives restarts
+            mode="observe",
         )
 
-        # Use exactly like the real client:
-        response = client.messages.create(
-            model="claude-opus-4-7",
+        response = await client.messages.create(
+            model="claude-haiku-4-5-20251001",
             max_tokens=1024,
-            messages=[{"role": "user", "content": "Summarize this document..."}],
+            messages=[{"role": "user", "content": user_input}],
         )
     """
 
@@ -484,14 +455,13 @@ class GuardedClient:
         self._policy_engine = ToolPolicyEngine(policy_path=policy_path)
         self._trust_scorer = trust_scorer if trust_scorer is not None else TrustScorer()
 
-        # Wire up durable audit logging if requested.
         self._audit_logger: Optional[AuditLogger] = None
         if audit_log is not None:
             self._audit_logger = AuditLogger(path=audit_log)
             self._bus.subscribe(self._audit_logger)
             logger.info("[AgentGuard] Audit log -> %s", audit_log)
 
-        # Emit session_start.
+        # Emit session_start synchronously so it's visible even before the first await.
         self._bus.emit(
             SecurityEvent(
                 session_id=self.session_id,
@@ -502,28 +472,29 @@ class GuardedClient:
                 payload=make_payload(mode=mode, policy_path=policy_path or "none"),
             )
         )
-        logger.info("[AgentGuard] Session %s started (agent=%s, mode=%s)", self.session_id, agent_id, mode)
+        logger.info(
+            "[AgentGuard] Async session %s started (agent=%s, mode=%s)",
+            self.session_id,
+            agent_id,
+            mode,
+        )
 
     @property
-    def messages(self) -> GuardedMessages:
-        """Intercepted messages namespace."""
-        return GuardedMessages(self)
+    def messages(self) -> AsyncGuardedMessages:
+        """Intercepted async messages namespace."""
+        return AsyncGuardedMessages(self)
 
     def record_external_content(self, source_type: str = "file") -> None:
-        """Signal that this session processed external content.
-
-        Call this before making an LLM call that processes untrusted data
-        (web scrape, file read, user upload) to trigger trust score degradation.
-        """
+        """Signal that this session processed external, untrusted content."""
         self._trust_scorer.record_external_content(self.session_id, source_type)
 
     def trust_score(self) -> float:
         """Return the current trust score for this session."""
         return self._trust_scorer.score(self.session_id)
 
-    def end_session(self) -> None:
-        """Emit a session_end event and log a summary."""
-        self._bus.emit(
+    async def end_session(self) -> None:
+        """Emit a session_end event."""
+        await self._bus.emit_async(
             SecurityEvent(
                 session_id=self.session_id,
                 agent_id=self.agent_id,
@@ -535,5 +506,5 @@ class GuardedClient:
         )
 
     def __getattr__(self, name: str) -> Any:
-        """Proxy all other attributes directly to the underlying client."""
+        """Proxy all other attributes directly to the underlying async client."""
         return getattr(self._client, name)

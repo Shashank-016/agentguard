@@ -5,11 +5,13 @@ from __future__ import annotations
 import logging
 import time
 from collections import defaultdict, deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
 import yaml
+
+from .constraints import ArgumentConstraintChecker, ConstraintViolation
 
 logger = logging.getLogger(__name__)
 
@@ -39,10 +41,45 @@ class PolicyResult:
 
 
 @dataclass
+class ToolConstraints:
+    """Per-tool argument constraints, declared under ``tool_constraints`` in the policy file.
+
+    Attributes
+    ----------
+    path_allowlist:
+        Glob patterns (supporting ``**``); a path-like argument that matches
+        none of these patterns is a ``path_not_allowed`` violation.
+    path_denylist:
+        Glob patterns; a path-like argument matching any of these is a
+        ``path_denied`` violation.
+    url_allowlist:
+        Glob patterns matched against the host of a URL-like argument; a
+        non-matching host is a ``url_not_allowed`` violation.
+    url_denylist:
+        Glob patterns matched against the host of a URL-like argument; a
+        matching host is a ``url_denied`` violation.
+    max_arg_length:
+        Maximum allowed length, in characters, for any string argument value.
+        ``None`` disables the check. Violations are flagged ``oversized_argument``.
+    arg_denylist:
+        Substrings that must not appear in any argument value. A match is an
+        ``arg_denylist`` violation.
+    """
+
+    path_allowlist: list[str] = field(default_factory=list)
+    path_denylist: list[str] = field(default_factory=list)
+    url_allowlist: list[str] = field(default_factory=list)
+    url_denylist: list[str] = field(default_factory=list)
+    max_arg_length: Optional[int] = None
+    arg_denylist: list[str] = field(default_factory=list)
+
+
+@dataclass
 class _AgentPolicy:
     allowed_tools: Optional[list[str]]  # None = wildcard
     denied_tools: list[str]
     rate_limits: dict[str, tuple[int, int]]  # tool → (count, window_seconds)
+    tool_constraints: dict[str, ToolConstraints] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -118,6 +155,7 @@ class ToolPolicyEngine:
     def __init__(self, policy_path: Optional[str] = None) -> None:
         self._policies: dict[str, _AgentPolicy] = {}
         self._rate_counter = _SlidingWindowCounter()
+        self._constraint_checker = ArgumentConstraintChecker()
         if policy_path:
             self._load(policy_path)
 
@@ -129,10 +167,25 @@ class ToolPolicyEngine:
             parsed_limits: dict[str, tuple[int, int]] = {}
             for tool, spec in raw_limits.items():
                 parsed_limits[tool] = _parse_rate(spec)
+
+            raw_constraints = cfg.get("tool_constraints", {})
+            parsed_constraints: dict[str, ToolConstraints] = {}
+            for tool, spec in raw_constraints.items():
+                spec = spec or {}
+                parsed_constraints[tool] = ToolConstraints(
+                    path_allowlist=list(spec.get("path_allowlist", [])),
+                    path_denylist=list(spec.get("path_denylist", [])),
+                    url_allowlist=list(spec.get("url_allowlist", [])),
+                    url_denylist=list(spec.get("url_denylist", [])),
+                    max_arg_length=spec.get("max_arg_length"),
+                    arg_denylist=list(spec.get("arg_denylist", [])),
+                )
+
             self._policies[agent_id] = _AgentPolicy(
                 allowed_tools=cfg.get("allowed_tools"),
                 denied_tools=cfg.get("denied_tools", []),
                 rate_limits=parsed_limits,
+                tool_constraints=parsed_constraints,
             )
         logger.info(
             "ToolPolicyEngine loaded policies for agents: %s",
@@ -192,6 +245,19 @@ class ToolPolicyEngine:
             reason=f"'{tool_name}' is permitted for agent '{agent_id}'",
             rule_name="policy:allowed",
         )
+
+    def check_arguments(
+        self, agent_id: str, tool_name: str, arguments: dict
+    ) -> list[ConstraintViolation]:
+        """Run argument-level constraint checks for a tool call.
+
+        Combines built-in dangerous-pattern detectors with any per-tool
+        constraints defined in the policy file. Returns all violations.
+        Never raises.
+        """
+        policy = self._policies.get(agent_id)
+        constraints = policy.tool_constraints.get(tool_name) if policy else None
+        return self._constraint_checker.check(tool_name, arguments, constraints=constraints)
 
     def is_sensitive(self, tool_name: str) -> bool:
         """Return True if ``tool_name`` is considered a high-impact operation."""

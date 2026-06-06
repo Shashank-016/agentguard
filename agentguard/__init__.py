@@ -32,18 +32,27 @@ from .async_client import AsyncGuardedClient
 from .audit import AuditLogger
 from .bus import EventBus
 from .callbacks import AgentGuardCallback
-from .client import AgentGuardException, GuardedClient
+from .client import AgentGuardException, AgentGuardKilled, GuardedClient
+from .control import ApprovalGate, ApprovalRequest, KillSwitch, get_default_kill_switch
 from .events import SecurityEvent
+from .openai_client import AsyncGuardedOpenAI, GuardedOpenAI
 from .store import EventStore
 
 __version__ = "0.1.0"
 __all__ = [
     "GuardedClient",
     "AsyncGuardedClient",
+    "GuardedOpenAI",
+    "AsyncGuardedOpenAI",
     "AgentGuardCallback",
     "AgentGuardException",
+    "AgentGuardKilled",
+    "ApprovalGate",
+    "ApprovalRequest",
     "AuditLogger",
     "EventBus",
     "EventStore",
+    "KillSwitch",
     "SecurityEvent",
+    "get_default_kill_switch",
 ]

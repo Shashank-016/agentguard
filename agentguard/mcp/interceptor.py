@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Literal, Optional
 
 from ..bus import EventBus
+from ..control import ApprovalDecision, ApprovalGate, ApprovalRequest, KillSwitch, get_default_kill_switch
 from ..engine.injection import InjectionDetector
 from ..engine.policy import ToolPolicyEngine
 from ..engine.trust import TrustScorer
@@ -14,6 +15,8 @@ from ..events import SecurityEvent
 from .models import (
     AGENTGUARD_INJECTION_DETECTED,
     AGENTGUARD_POLICY_VIOLATION,
+    AGENTGUARD_SESSION_KILLED,
+    AGENTGUARD_TRUST_VIOLATION,
     MCPRequest,
     MCPToolCallParams,
 )
@@ -77,6 +80,14 @@ class MCPInterceptor:
     mode:
         ``"observe"`` — log but never block.
         ``"enforce"`` — block on violations.
+        ``"interactive"`` — route violations through ``approval_gate`` for a
+        human (or programmatic) decision; a "deny" blocks the request.
+    approval_gate:
+        :class:`~agentguard.control.ApprovalGate` used in ``mode="interactive"``.
+        If ``None``, a default gate (CLI y/N prompt) is created when needed.
+    kill_switch:
+        Shared :class:`~agentguard.control.KillSwitch`. Defaults to the
+        process-wide singleton from :func:`~agentguard.control.get_default_kill_switch`.
     """
 
     def __init__(
@@ -85,7 +96,9 @@ class MCPInterceptor:
         session_id: str,
         bus: EventBus,
         policy_path: Optional[str] = None,
-        mode: Literal["observe", "enforce"] = "observe",
+        mode: Literal["observe", "enforce", "interactive"] = "observe",
+        approval_gate: Optional[ApprovalGate] = None,
+        kill_switch: Optional[KillSwitch] = None,
     ) -> None:
         self.agent_id = agent_id
         self.session_id = session_id
@@ -94,6 +107,57 @@ class MCPInterceptor:
         self._injection = InjectionDetector()
         self._policy = ToolPolicyEngine(policy_path)
         self._trust = TrustScorer()
+        self._approval_gate = approval_gate or (ApprovalGate() if mode == "interactive" else None)
+        self._kill_switch = kill_switch if kill_switch is not None else get_default_kill_switch()
+
+    def _request_approval(
+        self,
+        *,
+        events: list[SecurityEvent],
+        action: str,
+        reason: str,
+        payload: dict,
+        parent_event_id: Optional[str] = None,
+    ) -> ApprovalDecision:
+        """Append ``approval_required``/``approval_granted``/``approval_denied`` events and return the decision.
+
+        Mirrors the SDK wrappers' interactive-mode flow: routes the violation
+        through ``self._approval_gate`` and records the full round trip. Events
+        are appended to ``events`` (emitted by the caller, like every other
+        event this method produces) rather than emitted immediately.
+        """
+        events.append(
+            SecurityEvent(
+                session_id=self.session_id,
+                agent_id=self.agent_id,
+                source="mcp",
+                event_type="approval_required",
+                severity="warning",
+                payload={"action": action, "reason": reason, "context": payload},
+                parent_event_id=parent_event_id,
+            )
+        )
+        decision = self._approval_gate.request(
+            ApprovalRequest(
+                session_id=self.session_id,
+                agent_id=self.agent_id,
+                action=action,
+                reason=reason,
+                payload=payload,
+            )
+        )
+        events.append(
+            SecurityEvent(
+                session_id=self.session_id,
+                agent_id=self.agent_id,
+                source="mcp",
+                event_type="approval_granted" if decision == "approve" else "approval_denied",
+                severity="info" if decision == "approve" else "critical",
+                payload={"action": action, "decision": decision},
+                parent_event_id=parent_event_id,
+            )
+        )
+        return decision
 
     def intercept(self, request: MCPRequest) -> InterceptResult:
         """Run all security checks on an incoming MCP request.
@@ -101,11 +165,34 @@ class MCPInterceptor:
         Only ``tools/call`` requests are deeply inspected. Other MCP lifecycle
         methods are logged at info level and passed through without blocking.
 
+        If this session (or the global switch) has been tripped via
+        :class:`~agentguard.control.KillSwitch`, the request is blocked
+        immediately without running any checks or contacting the upstream server.
+
         Returns
         -------
         InterceptResult
             Contains ``allowed`` flag, emitted events, and optional block details.
         """
+        if self._kill_switch.is_killed(self.session_id):
+            event = SecurityEvent(
+                session_id=self.session_id,
+                agent_id=self.agent_id,
+                source="mcp",
+                event_type="session_end",
+                severity="critical",
+                payload={"reason": "kill_switch_tripped", "method": request.method},
+                flags=["kill:tripped"],
+            )
+            self.bus.emit(event)
+            logger.critical("[AgentGuard/MCP] Session %s halted by kill switch", self.session_id)
+            return InterceptResult(
+                allowed=False,
+                events=[event],
+                block_reason=f"Session '{self.session_id}' has been killed via KillSwitch — request blocked.",
+                block_code=AGENTGUARD_SESSION_KILLED,
+            )
+
         events: list[SecurityEvent] = []
         allowed = True
         block_reason: Optional[str] = None
@@ -146,8 +233,83 @@ class MCPInterceptor:
                         f"{[m.pattern_name for m in matches]}"
                     )
                     block_code = AGENTGUARD_INJECTION_DETECTED
+                elif self.mode == "interactive":
+                    decision = self._request_approval(
+                        events=events,
+                        action=f"tool_call:{params.name}",
+                        reason=f"Injection detected in tool arguments: {[m.pattern_name for m in matches]}",
+                        payload={"tool": params.name, "arguments": params.arguments, "flags": flags},
+                    )
+                    if decision == "deny":
+                        allowed = False
+                        block_reason = (
+                            f"Injection detected in tool arguments — denied by approver: "
+                            f"{[m.pattern_name for m in matches]}"
+                        )
+                        block_code = AGENTGUARD_INJECTION_DETECTED
 
-            # 2. Policy check
+            # 2. Argument-level constraint check (path traversal, SSRF, shell metachars, ...)
+            violations = self._policy.check_arguments(self.agent_id, params.name, params.arguments)
+            if violations:
+                violation_flags = [v.flag for v in violations]
+                event = SecurityEvent(
+                    session_id=self.session_id,
+                    agent_id=self.agent_id,
+                    source="mcp",
+                    event_type="policy_violation",
+                    severity="critical",
+                    payload={
+                        "tool": params.name,
+                        "arguments": params.arguments,
+                        "violations": [
+                            {
+                                "constraint": v.constraint,
+                                "argument": v.argument,
+                                "value": v.value,
+                                "detail": v.detail,
+                            }
+                            for v in violations
+                        ],
+                    },
+                    flags=violation_flags,
+                )
+                events.append(event)
+                logger.warning(
+                    "[AgentGuard/MCP] policy_violation: %s → CRITICAL  tool=%s  constraints=%s",
+                    self.agent_id,
+                    params.name,
+                    violation_flags,
+                )
+                if self.mode == "enforce":
+                    allowed = False
+                    block_reason = (
+                        f"Argument constraint violation for tool '{params.name}': "
+                        f"{[v.detail for v in violations]}"
+                    )
+                    block_code = AGENTGUARD_POLICY_VIOLATION
+                elif self.mode == "interactive":
+                    decision = self._request_approval(
+                        events=events,
+                        action=f"tool_call:{params.name}",
+                        reason=(
+                            f"Argument constraint violation for tool '{params.name}': "
+                            f"{[v.detail for v in violations]}"
+                        ),
+                        payload={
+                            "tool": params.name,
+                            "arguments": params.arguments,
+                            "flags": violation_flags,
+                        },
+                    )
+                    if decision == "deny":
+                        allowed = False
+                        block_reason = (
+                            f"Argument constraint violation for tool '{params.name}' — "
+                            f"denied by approver: {[v.detail for v in violations]}"
+                        )
+                        block_code = AGENTGUARD_POLICY_VIOLATION
+
+            # 3. Policy check
             policy_result = self._policy.check(self.agent_id, params.name)
             if not policy_result.allowed:
                 event = SecurityEvent(
@@ -175,8 +337,22 @@ class MCPInterceptor:
                         f"Tool '{params.name}' denied by policy: {policy_result.reason}"
                     )
                     block_code = AGENTGUARD_POLICY_VIOLATION
+                elif self.mode == "interactive":
+                    decision = self._request_approval(
+                        events=events,
+                        action=f"tool_call:{params.name}",
+                        reason=f"Tool '{params.name}' denied by policy: {policy_result.reason}",
+                        payload={"tool": params.name, "reason": policy_result.reason},
+                    )
+                    if decision == "deny":
+                        allowed = False
+                        block_reason = (
+                            f"Tool '{params.name}' denied by policy and approver: {policy_result.reason}"
+                        )
+                        block_code = AGENTGUARD_POLICY_VIOLATION
 
-            # 3. Trust check (warning only — never blocks by itself)
+            # 4. Trust check (warning only — never hard-blocks in enforce mode;
+            #    interactive mode still routes it through the approval gate)
             if self._trust.should_flag(self.session_id, params.name):
                 score = self._trust.score(self.session_id)
                 event = SecurityEvent(
@@ -198,8 +374,22 @@ class MCPInterceptor:
                     params.name,
                     score,
                 )
+                if self.mode == "interactive":
+                    decision = self._request_approval(
+                        events=events,
+                        action=f"tool_call:{params.name}",
+                        reason=f"Low-trust session (score={score:.2f}) attempting {params.name}",
+                        payload={"tool": params.name, "trust_score": score},
+                    )
+                    if decision == "deny":
+                        allowed = False
+                        block_reason = (
+                            f"Tool '{params.name}' denied by approver due to low trust "
+                            f"score ({score:.2f})"
+                        )
+                        block_code = AGENTGUARD_TRUST_VIOLATION
 
-            # 4. Baseline tool_call event (emitted when the call is allowed or in observe mode)
+            # 5. Baseline tool_call event (emitted when the call is allowed or in observe mode)
             if allowed or self.mode == "observe":
                 events.append(
                     SecurityEvent(

@@ -23,6 +23,92 @@ def cli(log_level: str) -> None:
 
 
 @cli.group()
+def audit() -> None:
+    """Inspect and verify durable JSONL audit logs."""
+
+
+@audit.command(name="verify")
+@click.argument("path", type=click.Path(exists=True, dir_okay=False))
+def audit_verify(path: str) -> None:
+    """Verify the tamper-evident hash chain of an audit log file.
+
+    Exits 0 and prints a confirmation if the chain is intact, or exits 1 and
+    reports the line where the chain first breaks.
+
+    Example::
+
+        agentguard audit verify agentguard_audit.jsonl
+    """
+    from .audit import AuditLogger
+
+    log = AuditLogger(path=path, rotate_mb=0)
+    result = log.verify()
+    if result.valid:
+        click.echo(f"✓ Chain intact — {result.records_checked:,} records verified")
+        raise SystemExit(0)
+    click.echo(
+        f"✗ Chain broken at line {result.first_broken_line} — "
+        "record was modified or a prior line was deleted"
+    )
+    click.echo(f"  {result.detail}")
+    raise SystemExit(1)
+
+
+@audit.command(name="tail")
+@click.argument("path", type=click.Path(exists=True, dir_okay=False))
+@click.option("-n", "count", default=50, type=int, help="Number of records to print")
+def audit_tail(path: str, count: int) -> None:
+    """Print the last N records from an audit log, oldest first.
+
+    Example::
+
+        agentguard audit tail agentguard_audit.jsonl -n 50
+    """
+    from .audit import AuditLogger
+
+    log = AuditLogger(path=path, rotate_mb=0)
+    for event in reversed(log.tail(count)):
+        click.echo(event.model_dump_json())
+
+
+@audit.command(name="stats")
+@click.argument("path", type=click.Path(exists=True, dir_okay=False))
+def audit_stats(path: str) -> None:
+    """Print record counts by event_type and severity for an audit log.
+
+    Example::
+
+        agentguard audit stats agentguard_audit.jsonl
+    """
+    import json as _json
+    from collections import Counter
+    from pathlib import Path
+
+    type_counts: Counter = Counter()
+    severity_counts: Counter = Counter()
+    total = 0
+    for line in Path(path).read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            data = _json.loads(line)
+        except _json.JSONDecodeError:
+            continue
+        total += 1
+        type_counts[data.get("event_type", "unknown")] += 1
+        severity_counts[data.get("severity", "unknown")] += 1
+
+    click.echo(f"Total records: {total}")
+    click.echo("By event_type:")
+    for event_type, count in type_counts.most_common():
+        click.echo(f"  {event_type}: {count}")
+    click.echo("By severity:")
+    for severity, count in severity_counts.most_common():
+        click.echo(f"  {severity}: {count}")
+
+
+@cli.group()
 def mcp() -> None:
     """MCP (Model Context Protocol) proxy commands."""
 
@@ -43,7 +129,7 @@ def proxy() -> None:
 @click.option(
     "--mode",
     default="observe",
-    type=click.Choice(["observe", "enforce"]),
+    type=click.Choice(["observe", "enforce", "interactive"]),
     help="observe (log only) or enforce (block violations)",
 )
 @click.option("--session-id", default=None, help="Session ID (auto-generated if omitted)")
@@ -74,7 +160,7 @@ def stdio(
 @click.option(
     "--mode",
     default="observe",
-    type=click.Choice(["observe", "enforce"]),
+    type=click.Choice(["observe", "enforce", "interactive"]),
     help="observe (log only) or enforce (block violations)",
 )
 @click.option("--session-id", default=None, help="Session ID (auto-generated if omitted)")

@@ -8,13 +8,99 @@ from typing import Any, AsyncGenerator, Literal, Optional
 
 from .audit import AuditLogger
 from .bus import EventBus
-from .client import AgentGuardException
+from .client import AgentGuardException, AgentGuardKilled
+from .control import ApprovalGate, ApprovalRequest, KillSwitch, get_default_kill_switch
 from .engine.injection import InjectionDetector
 from .engine.policy import ToolPolicyEngine
 from .engine.trust import TrustScorer
 from .events import SecurityEvent, make_payload
 
 logger = logging.getLogger(__name__)
+
+
+async def _raise_if_killed_async(guard: Any, source: str) -> None:
+    """Async variant of :func:`agentguard.client._raise_if_killed`.
+
+    ``guard`` is any async guarded-client-like object exposing ``session_id``,
+    ``agent_id``, ``_bus`` (with ``emit_async``), and ``_kill_switch`` — shared by
+    :class:`AsyncGuardedClient` and :class:`~agentguard.openai_client.AsyncGuardedOpenAI`.
+    """
+    if not guard._kill_switch.is_killed(guard.session_id):
+        return
+    await guard._bus.emit_async(
+        SecurityEvent(
+            session_id=guard.session_id,
+            agent_id=guard.agent_id,
+            source=source,
+            event_type="session_end",
+            severity="critical",
+            payload=make_payload(reason="kill_switch_tripped"),
+            flags=["kill:tripped"],
+        )
+    )
+    logger.critical("[AgentGuard] Session %s halted by kill switch", guard.session_id)
+    raise AgentGuardKilled(f"Session '{guard.session_id}' has been killed via KillSwitch — call blocked.")
+
+
+async def _dispatch_violation_async(
+    guard: Any,
+    *,
+    parent_event_id: str,
+    label: str,
+    action: str,
+    reason: str,
+    payload: dict,
+    block_in_enforce: bool = True,
+) -> None:
+    """Async variant of :func:`agentguard.client._dispatch_violation`.
+
+    Uses ``await guard._bus.emit_async(...)`` and ``await
+    guard._approval_gate.request_async(...)`` so the event loop is never blocked.
+    """
+    if guard.mode == "observe":
+        return
+
+    if guard.mode == "enforce":
+        if block_in_enforce:
+            raise AgentGuardException(f"{label} in enforce mode — call blocked. {reason}")
+        return
+
+    # interactive
+    await guard._bus.emit_async(
+        SecurityEvent(
+            session_id=guard.session_id,
+            agent_id=guard.agent_id,
+            source="sdk",
+            event_type="approval_required",
+            severity="warning",
+            payload=make_payload(action=action, reason=reason, context=payload),
+            parent_event_id=parent_event_id,
+        )
+    )
+    decision = await guard._approval_gate.request_async(
+        ApprovalRequest(
+            session_id=guard.session_id,
+            agent_id=guard.agent_id,
+            action=action,
+            reason=reason,
+            payload=payload,
+        )
+    )
+    await guard._bus.emit_async(
+        SecurityEvent(
+            session_id=guard.session_id,
+            agent_id=guard.agent_id,
+            source="sdk",
+            event_type="approval_granted" if decision == "approve" else "approval_denied",
+            severity="info" if decision == "approve" else "critical",
+            payload=make_payload(action=action, decision=decision),
+            parent_event_id=parent_event_id,
+        )
+    )
+    if decision == "deny":
+        raise AgentGuardException(
+            f"{label} denied by approver in interactive mode — call blocked. {reason}"
+        )
 
 
 class _AsyncAccumulatingTextStream:
@@ -70,6 +156,7 @@ class AsyncGuardedStream:
 
     async def __aenter__(self) -> _AsyncStreamProxy:
         g = self._guard
+        await _raise_if_killed_async(g, source="sdk")
         messages: list[dict] = self._kwargs.get("messages", [])
         tools: list[dict] = self._kwargs.get("tools", [])
         system: str = self._kwargs.get("system", "")
@@ -130,10 +217,14 @@ class AsyncGuardedStream:
                     metadata={"trust_score": trust_score},
                 )
             )
-            if g.mode == "enforce":
-                raise AgentGuardException(
-                    f"Injection detected in enforce mode — stream blocked. Flags: {flags}"
-                )
+            await _dispatch_violation_async(
+                g,
+                parent_event_id=self._llm_event_id,
+                label="Injection detected",
+                action=f"stream:{model}",
+                reason=f"Flags: {flags}",
+                payload={"flags": flags, "model": model},
+            )
 
         self._cm = g._client.messages.stream(**self._kwargs)
         real_stream = await self._cm.__aenter__()
@@ -194,6 +285,7 @@ class AsyncGuardedMessages:
     async def create(self, **kwargs: Any) -> Any:
         """Intercept an async messages.create call to perform security checks."""
         g = self._guard
+        await _raise_if_killed_async(g, source="sdk")
         messages: list[dict] = kwargs.get("messages", [])
         tools: list[dict] = kwargs.get("tools", [])
         system: str = kwargs.get("system", "")
@@ -284,10 +376,14 @@ class AsyncGuardedMessages:
                 trust_score,
             )
 
-            if g.mode == "enforce":
-                raise AgentGuardException(
-                    f"Injection detected in enforce mode — call blocked. Flags: {flags}"
-                )
+            await _dispatch_violation_async(
+                g,
+                parent_event_id=llm_event_id,
+                label="Injection detected",
+                action=f"llm_call:{model}",
+                reason=f"Flags: {flags}",
+                payload={"flags": flags, "model": model},
+            )
 
         # --- 5. Policy violations
         if policy_violations:
@@ -308,11 +404,14 @@ class AsyncGuardedMessages:
                 g.agent_id,
                 "\n  ".join(policy_violations),
             )
-            if g.mode == "enforce":
-                raise AgentGuardException(
-                    f"Policy violation in enforce mode — call blocked. "
-                    f"Violations: {policy_violations}"
-                )
+            await _dispatch_violation_async(
+                g,
+                parent_event_id=llm_event_id,
+                label="Policy violation",
+                action=f"llm_call:{model}",
+                reason=f"Violations: {policy_violations}",
+                payload={"violations": policy_violations},
+            )
 
         # --- 6. Actual API call
         response = await self._underlying.create(**kwargs)
@@ -346,6 +445,20 @@ class AsyncGuardedMessages:
                                 metadata={"trust_score": trust_score},
                             )
                         )
+                        # Trust flags are warning-only — never hard-block in enforce mode —
+                        # but interactive mode still routes them through the approval gate.
+                        await _dispatch_violation_async(
+                            g,
+                            parent_event_id=llm_event_id,
+                            label="Trust flag",
+                            action=f"tool_call:{tool_name}",
+                            reason=(
+                                f"Agent received output from low-trust session "
+                                f"(score={trust_score:.2f}), attempting {tool_name}"
+                            ),
+                            payload={"tool_name": tool_name, "trust_score": trust_score},
+                            block_in_enforce=False,
+                        )
 
                     policy_result = g._policy_engine.check(g.agent_id, tool_name)
                     tool_severity = "info" if policy_result.allowed else "critical"
@@ -371,6 +484,53 @@ class AsyncGuardedMessages:
                             parent_event_id=llm_event_id,
                         )
                     )
+
+                    # Argument-level constraint check (path traversal, SSRF, etc.)
+                    violations = g._policy_engine.check_arguments(g.agent_id, tool_name, tool_input)
+                    if violations:
+                        violation_flags = [v.flag for v in violations]
+                        await g._bus.emit_async(
+                            SecurityEvent(
+                                session_id=g.session_id,
+                                agent_id=g.agent_id,
+                                source="sdk",
+                                event_type="policy_violation",
+                                severity="critical",
+                                payload=make_payload(
+                                    tool_name=tool_name,
+                                    tool_input=tool_input,
+                                    violations=[
+                                        {
+                                            "constraint": v.constraint,
+                                            "argument": v.argument,
+                                            "value": v.value,
+                                            "detail": v.detail,
+                                        }
+                                        for v in violations
+                                    ],
+                                ),
+                                flags=violation_flags,
+                                parent_event_id=llm_event_id,
+                            )
+                        )
+                        logger.error(
+                            "[AgentGuard] policy_violation: %s.%s -> CRITICAL\n  argument constraints: %s",
+                            g.agent_id,
+                            tool_name,
+                            [v.detail for v in violations],
+                        )
+                        await _dispatch_violation_async(
+                            g,
+                            parent_event_id=llm_event_id,
+                            label="Argument constraint violation",
+                            action=f"tool_call:{tool_name}",
+                            reason=f"Flags: {violation_flags}",
+                            payload={
+                                "tool_name": tool_name,
+                                "tool_input": tool_input,
+                                "flags": violation_flags,
+                            },
+                        )
 
         return response
 
@@ -405,11 +565,20 @@ class AsyncGuardedClient:
         created with no persistent store.
     mode:
         ``"observe"`` (default) — detect and log, but never block.
-        ``"enforce"`` — raise :class:`AgentGuardException` on any violation.
+        ``"enforce"`` — raise :class:`~agentguard.client.AgentGuardException` on any violation.
+        ``"interactive"`` — route violations through ``approval_gate`` for a
+        human (or programmatic) decision; raises
+        :class:`~agentguard.client.AgentGuardException` if denied.
     trust_scorer:
         Shared :class:`~agentguard.engine.trust.TrustScorer`.
     use_embeddings:
         Pass ``True`` to enable the embedding-based injection detection pass.
+    approval_gate:
+        :class:`~agentguard.control.ApprovalGate` used in ``mode="interactive"``.
+        If ``None``, a default gate (CLI y/N prompt) is created when needed.
+    kill_switch:
+        Shared :class:`~agentguard.control.KillSwitch`. Defaults to the
+        process-wide singleton from :func:`~agentguard.control.get_default_kill_switch`.
     audit_log:
         Path to a JSONL audit file for durable event persistence.
 
@@ -440,9 +609,11 @@ class AsyncGuardedClient:
         agent_id: str = "default",
         policy_path: Optional[str] = None,
         bus: Optional[EventBus] = None,
-        mode: Literal["observe", "enforce"] = "observe",
+        mode: Literal["observe", "enforce", "interactive"] = "observe",
         trust_scorer: Optional[TrustScorer] = None,
         use_embeddings: bool = False,
+        approval_gate: Optional[ApprovalGate] = None,
+        kill_switch: Optional[KillSwitch] = None,
         audit_log: Optional[str] = None,
     ) -> None:
         self._client = client
@@ -454,6 +625,8 @@ class AsyncGuardedClient:
         self._injection_detector = InjectionDetector(use_embeddings=use_embeddings)
         self._policy_engine = ToolPolicyEngine(policy_path=policy_path)
         self._trust_scorer = trust_scorer if trust_scorer is not None else TrustScorer()
+        self._approval_gate = approval_gate or (ApprovalGate() if mode == "interactive" else None)
+        self._kill_switch = kill_switch if kill_switch is not None else get_default_kill_switch()
 
         self._audit_logger: Optional[AuditLogger] = None
         if audit_log is not None:

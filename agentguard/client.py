@@ -8,6 +8,7 @@ from typing import Any, Generator, Literal, Optional
 
 from .audit import AuditLogger
 from .bus import EventBus
+from .control import ApprovalGate, ApprovalRequest, KillSwitch, get_default_kill_switch
 from .engine.injection import InjectionDetector
 from .engine.policy import ToolPolicyEngine
 from .engine.trust import TrustScorer
@@ -18,6 +19,110 @@ logger = logging.getLogger(__name__)
 
 class AgentGuardException(Exception):
     """Raised in enforce mode when a security violation blocks execution."""
+
+
+class AgentGuardKilled(AgentGuardException):
+    """Raised when a session (or the global switch) has been halted via KillSwitch."""
+
+
+def _raise_if_killed(guard: Any, source: str) -> None:
+    """Raise :class:`AgentGuardKilled` if this session or the global switch has been tripped.
+
+    ``guard`` is any guarded-client-like object exposing ``session_id``,
+    ``agent_id``, ``_bus``, and ``_kill_switch`` — shared by
+    :class:`GuardedClient` and :class:`~agentguard.openai_client.GuardedOpenAI`.
+
+    Emits a critical ``session_end`` event before raising, so the kill is
+    visible in the audit trail even though no further work happens.
+    """
+    if not guard._kill_switch.is_killed(guard.session_id):
+        return
+    guard._bus.emit(
+        SecurityEvent(
+            session_id=guard.session_id,
+            agent_id=guard.agent_id,
+            source=source,
+            event_type="session_end",
+            severity="critical",
+            payload=make_payload(reason="kill_switch_tripped"),
+            flags=["kill:tripped"],
+        )
+    )
+    logger.critical("[AgentGuard] Session %s halted by kill switch", guard.session_id)
+    raise AgentGuardKilled(f"Session '{guard.session_id}' has been killed via KillSwitch — call blocked.")
+
+
+def _dispatch_violation(
+    guard: Any,
+    *,
+    parent_event_id: str,
+    label: str,
+    action: str,
+    reason: str,
+    payload: dict,
+    block_in_enforce: bool = True,
+) -> None:
+    """Apply mode-aware handling for an already-detected and already-logged violation.
+
+    ``guard`` is any guarded-client-like object exposing ``mode``, ``session_id``,
+    ``agent_id``, ``_bus``, and ``_approval_gate`` — shared by :class:`GuardedClient`
+    and :class:`~agentguard.openai_client.GuardedOpenAI`.
+
+    * ``observe`` — no-op; the violation event has already been emitted.
+    * ``enforce`` — raise :class:`AgentGuardException` immediately, unless
+      ``block_in_enforce`` is False (used for trust flags, which are
+      warning-only and never hard-block by themselves in enforce mode).
+    * ``interactive`` — emit ``approval_required``, route the decision through
+      ``guard._approval_gate``, emit ``approval_granted``/``approval_denied``,
+      and raise :class:`AgentGuardException` if the approver denies. Unlike
+      enforce mode, this applies even when ``block_in_enforce`` is False — a
+      human's explicit "deny" always blocks, giving interactive mode finer
+      control than a blanket policy.
+    """
+    if guard.mode == "observe":
+        return
+
+    if guard.mode == "enforce":
+        if block_in_enforce:
+            raise AgentGuardException(f"{label} in enforce mode — call blocked. {reason}")
+        return
+
+    # interactive
+    guard._bus.emit(
+        SecurityEvent(
+            session_id=guard.session_id,
+            agent_id=guard.agent_id,
+            source="sdk",
+            event_type="approval_required",
+            severity="warning",
+            payload=make_payload(action=action, reason=reason, context=payload),
+            parent_event_id=parent_event_id,
+        )
+    )
+    decision = guard._approval_gate.request(
+        ApprovalRequest(
+            session_id=guard.session_id,
+            agent_id=guard.agent_id,
+            action=action,
+            reason=reason,
+            payload=payload,
+        )
+    )
+    guard._bus.emit(
+        SecurityEvent(
+            session_id=guard.session_id,
+            agent_id=guard.agent_id,
+            source="sdk",
+            event_type="approval_granted" if decision == "approve" else "approval_denied",
+            severity="info" if decision == "approve" else "critical",
+            payload=make_payload(action=action, decision=decision),
+            parent_event_id=parent_event_id,
+        )
+    )
+    if decision == "deny":
+        raise AgentGuardException(
+            f"{label} denied by approver in interactive mode — call blocked. {reason}"
+        )
 
 
 class _SyncAccumulatingTextStream:
@@ -68,6 +173,7 @@ class GuardedStream:
 
     def __enter__(self) -> _SyncStreamProxy:
         g = self._guard
+        _raise_if_killed(g, source="sdk")
         messages: list[dict] = self._kwargs.get("messages", [])
         tools: list[dict] = self._kwargs.get("tools", [])
         system: str = self._kwargs.get("system", "")
@@ -128,10 +234,14 @@ class GuardedStream:
                     metadata={"trust_score": trust_score},
                 )
             )
-            if g.mode == "enforce":
-                raise AgentGuardException(
-                    f"Injection detected in enforce mode — stream blocked. Flags: {flags}"
-                )
+            _dispatch_violation(
+                g,
+                parent_event_id=self._llm_event_id,
+                label="Injection detected",
+                action=f"stream:{model}",
+                reason=f"Flags: {flags}",
+                payload={"flags": flags, "model": model},
+            )
 
         self._cm = g._client.messages.stream(**self._kwargs)
         real_stream = self._cm.__enter__()
@@ -194,6 +304,7 @@ class GuardedMessages:
     def create(self, **kwargs: Any) -> Any:
         """Intercept a messages.create call to perform security checks."""
         g = self._guard
+        _raise_if_killed(g, source="sdk")
         messages: list[dict] = kwargs.get("messages", [])
         tools: list[dict] = kwargs.get("tools", [])
         system: str = kwargs.get("system", "")
@@ -285,10 +396,14 @@ class GuardedMessages:
                 trust_score,
             )
 
-            if g.mode == "enforce":
-                raise AgentGuardException(
-                    f"Injection detected in enforce mode — call blocked. Flags: {flags}"
-                )
+            _dispatch_violation(
+                g,
+                parent_event_id=llm_event_id,
+                label="Injection detected",
+                action=f"llm_call:{model}",
+                reason=f"Flags: {flags}",
+                payload={"flags": flags, "model": model},
+            )
 
         # --- 5. Policy violation events -----------------------------------
         if policy_violations:
@@ -309,11 +424,14 @@ class GuardedMessages:
                 g.agent_id,
                 "\n  ".join(policy_violations),
             )
-            if g.mode == "enforce":
-                raise AgentGuardException(
-                    f"Policy violation in enforce mode — call blocked. "
-                    f"Violations: {policy_violations}"
-                )
+            _dispatch_violation(
+                g,
+                parent_event_id=llm_event_id,
+                label="Policy violation",
+                action=f"llm_call:{model}",
+                reason=f"Violations: {policy_violations}",
+                payload={"violations": policy_violations},
+            )
 
         # --- 6. Actual API call -------------------------------------------
         response = self._underlying.create(**kwargs)
@@ -355,6 +473,21 @@ class GuardedMessages:
                             trust_score,
                             tool_name,
                         )
+                        # Trust flags are warning-only — never hard-block in enforce mode —
+                        # but interactive mode still routes them through the approval gate,
+                        # giving humans finer-grained control than a blanket policy.
+                        _dispatch_violation(
+                            g,
+                            parent_event_id=llm_event_id,
+                            label="Trust flag",
+                            action=f"tool_call:{tool_name}",
+                            reason=(
+                                f"Agent received output from low-trust session "
+                                f"(score={trust_score:.2f}), attempting {tool_name}"
+                            ),
+                            payload={"tool_name": tool_name, "trust_score": trust_score},
+                            block_in_enforce=False,
+                        )
 
                     # Policy check for the actual tool being called.
                     policy_result = g._policy_engine.check(g.agent_id, tool_name)
@@ -390,6 +523,53 @@ class GuardedMessages:
                         logger.info(log_msg, g.agent_id, tool_name, "INFO")
                     else:
                         logger.error(log_msg, g.agent_id, tool_name, policy_result.reason)
+
+                    # Argument-level constraint check (path traversal, SSRF, etc.)
+                    violations = g._policy_engine.check_arguments(g.agent_id, tool_name, tool_input)
+                    if violations:
+                        violation_flags = [v.flag for v in violations]
+                        g._bus.emit(
+                            SecurityEvent(
+                                session_id=g.session_id,
+                                agent_id=g.agent_id,
+                                source="sdk",
+                                event_type="policy_violation",
+                                severity="critical",
+                                payload=make_payload(
+                                    tool_name=tool_name,
+                                    tool_input=tool_input,
+                                    violations=[
+                                        {
+                                            "constraint": v.constraint,
+                                            "argument": v.argument,
+                                            "value": v.value,
+                                            "detail": v.detail,
+                                        }
+                                        for v in violations
+                                    ],
+                                ),
+                                flags=violation_flags,
+                                parent_event_id=llm_event_id,
+                            )
+                        )
+                        logger.error(
+                            "[AgentGuard] policy_violation: %s.%s -> CRITICAL\n  argument constraints: %s",
+                            g.agent_id,
+                            tool_name,
+                            [v.detail for v in violations],
+                        )
+                        _dispatch_violation(
+                            g,
+                            parent_event_id=llm_event_id,
+                            label="Argument constraint violation",
+                            action=f"tool_call:{tool_name}",
+                            reason=f"Flags: {violation_flags}",
+                            payload={
+                                "tool_name": tool_name,
+                                "tool_input": tool_input,
+                                "flags": violation_flags,
+                            },
+                        )
 
         return response
 
@@ -427,11 +607,22 @@ class GuardedClient:
     mode:
         ``"observe"`` (default) — detect and log, but never block.
         ``"enforce"`` — raise :class:`AgentGuardException` on any violation.
+        ``"interactive"`` — route violations through ``approval_gate`` for a
+        human (or programmatic) decision; raises :class:`AgentGuardException`
+        if denied. See :class:`~agentguard.control.ApprovalGate`.
     trust_scorer:
         Shared :class:`~agentguard.engine.trust.TrustScorer`. Useful when
         multiple ``GuardedClient`` instances share a session.
     use_embeddings:
         Pass ``True`` to enable the embedding-based injection detection pass.
+    approval_gate:
+        :class:`~agentguard.control.ApprovalGate` used in ``mode="interactive"``
+        to route violations to a human or programmatic approver. If ``None``,
+        a default gate (CLI y/N prompt) is created when ``mode="interactive"``.
+    kill_switch:
+        Shared :class:`~agentguard.control.KillSwitch`. If ``None``, the
+        process-wide default from :func:`~agentguard.control.get_default_kill_switch`
+        is used, so any code holding that singleton can halt this session.
     audit_log:
         Path to a JSONL audit file. Every event is appended to this file
         durably and synchronously — survives process restarts. Defaults to
@@ -469,9 +660,11 @@ class GuardedClient:
         agent_id: str = "default",
         policy_path: Optional[str] = None,
         bus: Optional[EventBus] = None,
-        mode: Literal["observe", "enforce"] = "observe",
+        mode: Literal["observe", "enforce", "interactive"] = "observe",
         trust_scorer: Optional[TrustScorer] = None,
         use_embeddings: bool = False,
+        approval_gate: Optional[ApprovalGate] = None,
+        kill_switch: Optional[KillSwitch] = None,
         audit_log: Optional[str] = None,
     ) -> None:
         self._client = client
@@ -483,6 +676,8 @@ class GuardedClient:
         self._injection_detector = InjectionDetector(use_embeddings=use_embeddings)
         self._policy_engine = ToolPolicyEngine(policy_path=policy_path)
         self._trust_scorer = trust_scorer if trust_scorer is not None else TrustScorer()
+        self._approval_gate = approval_gate or (ApprovalGate() if mode == "interactive" else None)
+        self._kill_switch = kill_switch if kill_switch is not None else get_default_kill_switch()
 
         # Wire up durable audit logging if requested.
         self._audit_logger: Optional[AuditLogger] = None

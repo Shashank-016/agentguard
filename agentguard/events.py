@@ -18,10 +18,13 @@ EventType = Literal[
     "trust_flag",
     "session_start",
     "session_end",
+    "approval_required",
+    "approval_granted",
+    "approval_denied",
 ]
 
 Severity = Literal["info", "warning", "critical"]
-Source = Literal["sdk", "langgraph", "mcp"]
+Source = Literal["sdk", "langgraph", "mcp", "openai"]
 
 
 class SecurityEvent(BaseModel):

@@ -45,6 +45,9 @@ langgraph = [
 embeddings = [
     "sentence-transformers>=3.2.0,<4.0",
 ]
+openai = [
+    "openai>=1.0.0,<2.0",
+]
 dev = [
     "pytest>=8.3.0,<9.0",
     "pytest-asyncio>=0.24.0,<1.0",
@@ -52,7 +55,7 @@ dev = [
     "mypy>=1.11.0",
 ]
 all = [
-    "agentguard[langgraph,embeddings,dev]",
+    "agentguard[langgraph,embeddings,openai,dev]",
 ]
 
 [project.scripts]

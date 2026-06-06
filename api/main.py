@@ -84,8 +84,10 @@ async def health() -> dict:
 
 
 # Import routes after app is defined to avoid circular imports.
+from api.routes.control import router as control_router  # noqa: E402
 from api.routes.events import router as events_router  # noqa: E402
 from api.routes.sessions import router as sessions_router  # noqa: E402
 
+app.include_router(control_router)
 app.include_router(events_router)
 app.include_router(sessions_router)

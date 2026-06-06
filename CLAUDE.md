@@ -25,6 +25,12 @@ ANTHROPIC_API_KEY=sk-... python examples/sdk_demo.py
 # Run the async SDK demo (AsyncGuardedClient)
 ANTHROPIC_API_KEY=sk-... python examples/async_sdk_demo.py
 
+# Run the OpenAI SDK demo (GuardedOpenAI — requires the [openai] extra)
+OPENAI_API_KEY=sk-... python examples/openai_sdk_demo.py
+
+# Run the async OpenAI SDK demo (AsyncGuardedOpenAI)
+OPENAI_API_KEY=sk-... python examples/async_openai_sdk_demo.py
+
 # Run the MCP proxy demo (requires Node.js + npx for the real MCP server)
 python examples/mcp_proxy_demo.py
 
@@ -80,6 +86,18 @@ Regex patterns have zero latency and high precision on known attack patterns. Em
 **Policy deny-list is checked before allow-list.**
 Explicit denies always beat explicit allows. If a tool appears in both (misconfiguration), it's blocked. This is the safer default for a security tool.
 
+**`control.py` never imports from `client.py`.**
+`AgentGuardException`/`AgentGuardKilled` live in `client.py`; `ApprovalGate`/`KillSwitch` live in `control.py`. Importing the exceptions into `control.py` would create a cycle (`client.py` needs `ApprovalGate`/`KillSwitch` to implement `mode="interactive"`). `KillSwitch.is_killed()` returns a plain `bool` — the actual `raise AgentGuardKilled(...)` happens at each call site (`client.py`, `async_client.py`, `mcp/interceptor.py`), which already import the exception classes.
+
+**Interactive mode gives humans finer control than enforce mode's blanket policy.**
+`trust_flag` events are warning-only and never hard-block in `mode="enforce"` (a low trust score alone shouldn't halt an agent). But in `mode="interactive"`, they still route through the `ApprovalGate` — an explicit human "deny" blocks the call. This asymmetry is intentional: enforce mode encodes a fixed policy ahead of time, interactive mode lets a human apply judgment in the moment, including to things that wouldn't trigger a hard block on their own.
+
+**`GuardedOpenAI`/`AsyncGuardedOpenAI` reuse `client.py`'s/`async_client.py`'s violation-dispatch helpers.**
+`_dispatch_violation`/`_raise_if_killed` (and their `_async` counterparts) are duck-typed against shared attribute names (`session_id`, `agent_id`, `mode`, `_bus`, `_approval_gate`, `_kill_switch`) rather than `GuardedClient`/`AsyncGuardedClient` specifically — their `guard:` parameter is typed `Any`. `agentguard/openai_client.py` imports and reuses them directly instead of re-implementing the observe/enforce/interactive branching and kill-switch checks a third time. The OpenAI-shape differences (nested `{"type": "function", "function": {...}}` tool definitions, JSON-string `function.arguments` instead of structured `input` dicts) are bridged locally via `_tool_def_name()`/`_parse_tool_arguments()`.
+
+**`KillSwitch` is a process-wide singleton by default.**
+`get_default_kill_switch()` returns one shared instance so a single `kill_all()` — whether called programmatically, via the `/control/kill-all` API route, or from a different `GuardedClient`/`MCPInterceptor` — halts every in-process session immediately. Pass an explicit `kill_switch=` to isolate a client from the shared switch (e.g. in tests). Multi-process deployments need a shared backing store (Redis, per the roadmap) for one trip to halt every worker.
+
 ## What's Not Built Yet
 
 - OpenTelemetry span export
@@ -94,14 +112,17 @@ Explicit denies always beat explicit allows. If a tool appears in both (misconfi
 agentguard/events.py          -> SecurityEvent Pydantic model + make_payload()
 agentguard/bus.py             -> EventBus (sync + async emit, subscribers)
 agentguard/store.py           -> SQLAlchemy async store (SQLite/Postgres)
-agentguard/audit.py           -> AuditLogger (sync JSONL append, rotation, search)
-agentguard/client.py          -> GuardedClient + GuardedMessages + GuardedStream
+agentguard/audit.py           -> AuditLogger (hash-chained tamper-evident JSONL append, rotation, search, verify)
+agentguard/control.py         -> ApprovalGate + KillSwitch (interactive mode, human-in-the-loop, kill switch)
+agentguard/client.py          -> GuardedClient + GuardedMessages + GuardedStream + AgentGuardException/Killed
 agentguard/async_client.py    -> AsyncGuardedClient + AsyncGuardedMessages + AsyncGuardedStream
+agentguard/openai_client.py   -> GuardedOpenAI/AsyncGuardedOpenAI + GuardedChatCompletions (OpenAI Chat Completions wrappers)
 agentguard/callbacks.py       -> AgentGuardCallback (LangGraph BaseCallbackHandler)
-agentguard/cli.py             -> Click CLI (agentguard mcp proxy stdio|sse)
+agentguard/cli.py             -> Click CLI (agentguard mcp proxy stdio|sse, audit verify|tail|stats)
 agentguard/engine/
   injection.py               -> InjectionDetector (regex + optional embeddings)
-  policy.py                  -> ToolPolicyEngine (YAML rules, rate limiting)
+  policy.py                  -> ToolPolicyEngine (YAML rules, rate limiting, argument constraints)
+  constraints.py             -> ArgumentConstraintChecker (path traversal, SSRF, shell metachars, sensitive paths)
   trust.py                   -> TrustScorer (provenance tracking)
 agentguard/mcp/
   models.py                  -> MCPRequest/MCPResponse Pydantic models + error codes
@@ -110,6 +131,7 @@ agentguard/mcp/
   proxy.py                   -> MCPProxy (intercept → check → forward)
   server.py                  -> StdioProxyServer + SSEProxyServer
 api/main.py                   -> FastAPI app with lifespan + CORS
+api/routes/control.py         -> POST /control/kill/{id}, /kill-all, /revive/{id}, GET /control/status
 api/routes/events.py          -> GET /events, /events/{id}, /events/alerts
 api/routes/sessions.py        -> GET /sessions, /sessions/{id}
 dashboard/src/App.tsx         -> Tab shell (feed / timeline / alerts)
@@ -120,6 +142,8 @@ dashboard/src/components/
 examples/langgraph_demo.py    -> Multi-agent demo with malicious document
 examples/sdk_demo.py          -> Sync SDK demo with injection attempt
 examples/async_sdk_demo.py    -> Async SDK demo with AsyncGuardedClient
+examples/openai_sdk_demo.py   -> Sync OpenAI SDK demo with GuardedOpenAI
+examples/async_openai_sdk_demo.py -> Async OpenAI SDK demo with AsyncGuardedOpenAI
 examples/mcp_proxy_demo.py    -> MCP proxy demo (transparent interception)
 ```
 

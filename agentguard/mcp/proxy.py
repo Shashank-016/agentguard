@@ -16,8 +16,11 @@ class MCPProxy:
     """Transparent MCP proxy: intercepts requests, enforces policy, forwards to upstream.
 
     In ``observe`` mode, all requests are forwarded and security events are emitted
-    without blocking. In ``enforce`` mode, blocked requests receive a JSON-RPC error
-    response and are never forwarded to the upstream server.
+    without blocking. In ``enforce`` and ``interactive`` modes, blocked requests
+    receive a JSON-RPC error response and are never forwarded to the upstream server
+    — the interceptor itself is responsible for deciding what gets blocked (hard
+    policy in enforce, human/approver decisions in interactive, kill-switch state in
+    either), this proxy simply honors ``result.allowed``.
 
     Parameters
     ----------
@@ -27,14 +30,14 @@ class MCPProxy:
     interceptor:
         The :class:`~agentguard.mcp.interceptor.MCPInterceptor` that runs security checks.
     mode:
-        ``"observe"`` or ``"enforce"``.
+        ``"observe"``, ``"enforce"``, or ``"interactive"``.
     """
 
     def __init__(
         self,
         upstream: Union[StdioUpstreamClient, SSEUpstreamClient],
         interceptor: MCPInterceptor,
-        mode: Literal["observe", "enforce"] = "observe",
+        mode: Literal["observe", "enforce", "interactive"] = "observe",
     ) -> None:
         self._upstream = upstream
         self._interceptor = interceptor
@@ -64,7 +67,7 @@ class MCPProxy:
 
         result = self._interceptor.intercept(request)
 
-        if not result.allowed and self.mode == "enforce":
+        if not result.allowed:
             logger.info(
                 "[AgentGuard/MCP] Request blocked: method=%s  reason=%s",
                 request.method,

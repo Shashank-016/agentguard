@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 from agentguard import AsyncGuardedClient, EventBus
 from agentguard.client import AgentGuardException
-from agentguard.events import SecurityEvent
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _mock_async_anthropic_client():
     """Build a minimal mock of anthropic.AsyncAnthropic."""
@@ -65,6 +65,7 @@ def _make_mock_stream(text_chunks=None, final_message=None):
 # Session lifecycle
 # ---------------------------------------------------------------------------
 
+
 class TestAsyncSessionLifecycle:
     def test_session_id_auto_generated(self):
         bus = EventBus()
@@ -79,7 +80,7 @@ class TestAsyncSessionLifecycle:
 
     def test_session_start_emitted_on_init(self):
         bus = EventBus()
-        gc = AsyncGuardedClient(_mock_async_anthropic_client(), session_id="s1", bus=bus)
+        AsyncGuardedClient(_mock_async_anthropic_client(), session_id="s1", bus=bus)
         events = bus.get_session_events("s1")
         assert any(e.event_type == "session_start" for e in events)
 
@@ -95,6 +96,7 @@ class TestAsyncSessionLifecycle:
 # ---------------------------------------------------------------------------
 # LLM call emission
 # ---------------------------------------------------------------------------
+
 
 class TestAsyncLLMCallEvent:
     @pytest.mark.asyncio
@@ -142,6 +144,7 @@ class TestAsyncLLMCallEvent:
 # ---------------------------------------------------------------------------
 # Injection detection
 # ---------------------------------------------------------------------------
+
 
 class TestAsyncInjectionDetection:
     @pytest.mark.asyncio
@@ -214,12 +217,14 @@ class TestAsyncInjectionDetection:
 # Tool policy violation
 # ---------------------------------------------------------------------------
 
+
 class TestAsyncPolicyViolation:
     @pytest.mark.asyncio
     async def test_policy_violation_event_emitted(self, tmp_path):
         policy_file = tmp_path / "policy.yaml"
         policy_file.write_text(
-            "version: '1'\nagents:\n  tester:\n    allowed_tools: [read_file]\n    denied_tools: [write_file]\n"
+            "version: '1'\nagents:\n  tester:\n"
+            "    allowed_tools: [read_file]\n    denied_tools: [write_file]\n"
         )
         bus = EventBus()
         gc = AsyncGuardedClient(
@@ -243,6 +248,7 @@ class TestAsyncPolicyViolation:
 # Streaming
 # ---------------------------------------------------------------------------
 
+
 class TestAsyncStreaming:
     @pytest.mark.asyncio
     async def test_stream_emits_llm_call_on_open(self):
@@ -258,7 +264,8 @@ class TestAsyncStreaming:
             max_tokens=100,
             messages=[{"role": "user", "content": "Hello"}],
         ) as stream:
-            chunks = [text async for text in stream.text_stream]
+            async for _ in stream.text_stream:
+                pass
 
         events = bus.get_session_events("stream1")
         assert any(e.event_type == "llm_call" for e in events)
@@ -312,6 +319,7 @@ class TestAsyncStreaming:
 # ---------------------------------------------------------------------------
 # __getattr__ proxy
 # ---------------------------------------------------------------------------
+
 
 class TestAsyncProxy:
     def test_proxied_attribute_accessible(self):

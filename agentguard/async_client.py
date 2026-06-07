@@ -1,10 +1,12 @@
-"""AsyncGuardedClient — drop-in wrapper around anthropic.AsyncAnthropic with security instrumentation."""
+"""AsyncGuardedClient — drop-in wrapper around anthropic.AsyncAnthropic with security
+instrumentation."""
 
 from __future__ import annotations
 
 import logging
 import uuid
-from typing import Any, AsyncGenerator, Literal, Optional
+from collections.abc import AsyncGenerator
+from typing import Any, Literal
 
 from .audit import AuditLogger
 from .bus import EventBus
@@ -39,7 +41,9 @@ async def _raise_if_killed_async(guard: Any, source: str) -> None:
         )
     )
     logger.critical("[AgentGuard] Session %s halted by kill switch", guard.session_id)
-    raise AgentGuardKilled(f"Session '{guard.session_id}' has been killed via KillSwitch — call blocked.")
+    raise AgentGuardKilled(
+        f"Session '{guard.session_id}' has been killed via KillSwitch — call blocked."
+    )
 
 
 async def _handle_engine_error_async(
@@ -48,7 +52,7 @@ async def _handle_engine_error_async(
     source: str,
     phase: str,
     exc: BaseException,
-    parent_event_id: Optional[str] = None,
+    parent_event_id: str | None = None,
 ) -> None:
     """Async variant of :func:`agentguard.client._handle_engine_error`.
 
@@ -76,7 +80,7 @@ async def _handle_engine_error_async(
 
 
 async def _evaluate_tool_use_async(
-    g: "AsyncGuardedClient", llm_event_id: str, tool_name: str, tool_input: dict
+    g: AsyncGuardedClient, llm_event_id: str, tool_name: str, tool_input: dict
 ) -> None:
     """Async variant of :func:`agentguard.client._evaluate_tool_use_sync`.
 
@@ -263,7 +267,7 @@ class _AsyncAccumulatingTextStream:
         self._real = real_text_stream
         self._buffer = buffer
 
-    def __aiter__(self) -> "_AsyncAccumulatingTextStream":
+    def __aiter__(self) -> _AsyncAccumulatingTextStream:
         return self._gen()  # type: ignore[return-value]
 
     async def _gen(self) -> AsyncGenerator[str, None]:  # type: ignore[override]
@@ -299,11 +303,11 @@ class AsyncGuardedStream:
     (including a scan of the complete model output for output-side injection).
     """
 
-    def __init__(self, guard: "AsyncGuardedClient", **kwargs: Any) -> None:
+    def __init__(self, guard: AsyncGuardedClient, **kwargs: Any) -> None:
         self._guard = guard
         self._kwargs = kwargs
         self._cm: Any = None
-        self._stream_proxy: Optional[_AsyncStreamProxy] = None
+        self._stream_proxy: _AsyncStreamProxy | None = None
         self._text_buffer: list[str] = []
         self._llm_event_id: str = ""
 
@@ -431,7 +435,7 @@ class AsyncGuardedStream:
 class AsyncGuardedMessages:
     """Proxy for ``client.messages`` that intercepts async ``.create()`` and ``.stream()`` calls."""
 
-    def __init__(self, guard: "AsyncGuardedClient") -> None:
+    def __init__(self, guard: AsyncGuardedClient) -> None:
         self._guard = guard
         self._underlying = guard._client.messages
 
@@ -466,13 +470,15 @@ class AsyncGuardedMessages:
                 tool_name = tool_def.get("name", "unknown")
                 result = g._policy_engine.check(g.agent_id, tool_name)
                 if not result.allowed:
-                    policy_violations.append(
-                        f"{tool_name}: {result.reason} [{result.rule_name}]"
-                    )
+                    policy_violations.append(f"{tool_name}: {result.reason} [{result.rule_name}]")
         except Exception as exc:
             policy_violations = []
             await _handle_engine_error_async(
-                g, source="sdk", phase="tool_definition_policy_check", parent_event_id=llm_event_id, exc=exc
+                g,
+                source="sdk",
+                phase="tool_definition_policy_check",
+                parent_event_id=llm_event_id,
+                exc=exc,
             )
 
         # --- 3. Emit llm_call event
@@ -674,16 +680,16 @@ class AsyncGuardedClient:
     def __init__(
         self,
         client: Any,
-        session_id: Optional[str] = None,
+        session_id: str | None = None,
         agent_id: str = "default",
-        policy_path: Optional[str] = None,
-        bus: Optional[EventBus] = None,
+        policy_path: str | None = None,
+        bus: EventBus | None = None,
         mode: Literal["observe", "enforce", "interactive"] = "observe",
-        trust_scorer: Optional[TrustScorer] = None,
+        trust_scorer: TrustScorer | None = None,
         use_embeddings: bool = False,
-        approval_gate: Optional[ApprovalGate] = None,
-        kill_switch: Optional[KillSwitch] = None,
-        audit_log: Optional[str] = None,
+        approval_gate: ApprovalGate | None = None,
+        kill_switch: KillSwitch | None = None,
+        audit_log: str | None = None,
     ) -> None:
         self._client = client
         self.session_id = session_id or str(uuid.uuid4())
@@ -697,7 +703,7 @@ class AsyncGuardedClient:
         self._approval_gate = approval_gate or (ApprovalGate() if mode == "interactive" else None)
         self._kill_switch = kill_switch if kill_switch is not None else get_default_kill_switch()
 
-        self._audit_logger: Optional[AuditLogger] = None
+        self._audit_logger: AuditLogger | None = None
         if audit_log is not None:
             self._audit_logger = AuditLogger(path=audit_log)
             self._bus.subscribe(self._audit_logger)

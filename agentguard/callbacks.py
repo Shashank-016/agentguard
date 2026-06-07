@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Any, Optional, Union
+from typing import Any
 
 from .audit import AuditLogger
 from .bus import EventBus
@@ -17,11 +17,13 @@ logger = logging.getLogger(__name__)
 
 try:
     from langchain_core.callbacks import BaseCallbackHandler
+
     _LANGCHAIN_AVAILABLE = True
 except ImportError:  # pragma: no cover
     # Provide a stub so the module is importable without langchain installed.
     class BaseCallbackHandler:  # type: ignore[no-redef]
         pass
+
     _LANGCHAIN_AVAILABLE = False
 
 
@@ -66,13 +68,13 @@ class AgentGuardCallback(BaseCallbackHandler):
 
     def __init__(
         self,
-        session_id: Optional[str] = None,
+        session_id: str | None = None,
         agent_id: str = "langgraph",
-        bus: Optional[EventBus] = None,
-        policy_path: Optional[str] = None,
-        trust_scorer: Optional[TrustScorer] = None,
+        bus: EventBus | None = None,
+        policy_path: str | None = None,
+        trust_scorer: TrustScorer | None = None,
         mode: str = "observe",
-        audit_log: Optional[str] = None,
+        audit_log: str | None = None,
     ) -> None:
         super().__init__()
         self.session_id = session_id or str(uuid.uuid4())
@@ -85,7 +87,7 @@ class AgentGuardCallback(BaseCallbackHandler):
         self._trust_scorer = trust_scorer if trust_scorer is not None else TrustScorer()
 
         # Wire up durable audit logging if requested.
-        self._audit_logger: Optional[AuditLogger] = None
+        self._audit_logger: AuditLogger | None = None
         if audit_log is not None:
             self._audit_logger = AuditLogger(path=audit_log)
             self._bus.subscribe(self._audit_logger)
@@ -94,7 +96,7 @@ class AgentGuardCallback(BaseCallbackHandler):
         # Tracks (chain_run_id -> event_id) for causal linking.
         self._active_chains: dict[str, str] = {}
         # Current agent_id may change on node traversal.
-        self._current_node: Optional[str] = None
+        self._current_node: str | None = None
 
         self._bus.emit(
             SecurityEvent(
@@ -108,7 +110,9 @@ class AgentGuardCallback(BaseCallbackHandler):
         )
         logger.info(
             "[AgentGuard] Session %s started (agent=%s, mode=%s)",
-            self.session_id, agent_id, mode,
+            self.session_id,
+            agent_id,
+            mode,
         )
 
     # ------------------------------------------------------------------
@@ -196,7 +200,11 @@ class AgentGuardCallback(BaseCallbackHandler):
 
         if injection_matches:
             flags = [m.flag for m in injection_matches]
-            severity = "critical" if any(m.severity == "critical" for m in injection_matches) else "warning"
+            severity = (
+                "critical"
+                if any(m.severity == "critical" for m in injection_matches)
+                else "warning"
+            )
             self._trust_scorer.record_injection_flag(self.session_id)
             trust_score = self._trust_scorer.score(self.session_id)
 
@@ -225,7 +233,10 @@ class AgentGuardCallback(BaseCallbackHandler):
             logger.warning(
                 "[AgentGuard] injection_detected: %s -> %s\n  flags: %s\n  trust_score: %.2f "
                 "(degraded — external content processed)",
-                node_name, severity.upper(), flags, trust_score,
+                node_name,
+                severity.upper(),
+                flags,
+                trust_score,
             )
 
     # ------------------------------------------------------------------
@@ -271,7 +282,9 @@ class AgentGuardCallback(BaseCallbackHandler):
             logger.warning(
                 "[AgentGuard] trust_flag: %s -> WARNING\n  reason: low-trust session "
                 "(score=%.2f), attempting %s",
-                node_name, trust_score, tool_name,
+                node_name,
+                trust_score,
+                tool_name,
             )
 
         # --- Policy check --------------------------------------------------
@@ -295,7 +308,9 @@ class AgentGuardCallback(BaseCallbackHandler):
             )
             logger.error(
                 "[AgentGuard] policy_violation: %s.%s -> CRITICAL\n  reason: %s",
-                node_name, tool_name, policy_result.reason,
+                node_name,
+                tool_name,
+                policy_result.reason,
             )
         else:
             self._bus.emit(
@@ -346,7 +361,8 @@ class AgentGuardCallback(BaseCallbackHandler):
             )
             logger.warning(
                 "[AgentGuard] injection_detected in tool output: %s -> WARNING  flags=%s",
-                node_name, flags,
+                node_name,
+                flags,
             )
 
     # ------------------------------------------------------------------
@@ -362,7 +378,9 @@ class AgentGuardCallback(BaseCallbackHandler):
         self._trust_scorer.record_agent_handoff(self.session_id, from_agent, to_agent)
         logger.info(
             "[AgentGuard] agent_handoff: %s -> %s (trust=%.2f)",
-            from_agent, to_agent, self._trust_scorer.score(self.session_id),
+            from_agent,
+            to_agent,
+            self._trust_scorer.score(self.session_id),
         )
 
     def trust_summary(self) -> dict:
@@ -386,12 +404,8 @@ class AgentGuardCallback(BaseCallbackHandler):
         }
 
 
-def _extract_name(serialized: dict[str, Any]) -> Optional[str]:
+def _extract_name(serialized: dict[str, Any]) -> str | None:
     """Extract a human-readable name from a LangChain serialized component dict."""
     if not isinstance(serialized, dict):
         return None
-    return (
-        serialized.get("name")
-        or serialized.get("id", [None])[-1]
-        or None
-    )
+    return serialized.get("name") or serialized.get("id", [None])[-1] or None

@@ -4,10 +4,16 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Literal, Optional
+from typing import Literal
 
 from ..bus import EventBus
-from ..control import ApprovalDecision, ApprovalGate, ApprovalRequest, KillSwitch, get_default_kill_switch
+from ..control import (
+    ApprovalDecision,
+    ApprovalGate,
+    ApprovalRequest,
+    KillSwitch,
+    get_default_kill_switch,
+)
 from ..engine.injection import InjectionDetector
 from ..engine.policy import ToolPolicyEngine
 from ..engine.trust import TrustScorer
@@ -43,8 +49,8 @@ class InterceptResult:
 
     allowed: bool
     events: list[SecurityEvent] = field(default_factory=list)
-    block_reason: Optional[str] = None
-    block_code: Optional[int] = None
+    block_reason: str | None = None
+    block_code: int | None = None
 
 
 _PASSTHROUGH_METHODS = frozenset(
@@ -96,10 +102,10 @@ class MCPInterceptor:
         agent_id: str,
         session_id: str,
         bus: EventBus,
-        policy_path: Optional[str] = None,
+        policy_path: str | None = None,
         mode: Literal["observe", "enforce", "interactive"] = "observe",
-        approval_gate: Optional[ApprovalGate] = None,
-        kill_switch: Optional[KillSwitch] = None,
+        approval_gate: ApprovalGate | None = None,
+        kill_switch: KillSwitch | None = None,
     ) -> None:
         self.agent_id = agent_id
         self.session_id = session_id
@@ -118,9 +124,10 @@ class MCPInterceptor:
         action: str,
         reason: str,
         payload: dict,
-        parent_event_id: Optional[str] = None,
+        parent_event_id: str | None = None,
     ) -> ApprovalDecision:
-        """Append ``approval_required``/``approval_granted``/``approval_denied`` events and return the decision.
+        """Append ``approval_required``/``approval_granted``/``approval_denied`` events and
+        return the decision.
 
         Mirrors the SDK wrappers' interactive-mode flow: routes the violation
         through ``self._approval_gate`` and records the full round trip. Events
@@ -190,14 +197,17 @@ class MCPInterceptor:
             return InterceptResult(
                 allowed=False,
                 events=[event],
-                block_reason=f"Session '{self.session_id}' has been killed via KillSwitch — request blocked.",
+                block_reason=(
+                    f"Session '{self.session_id}' has been killed via KillSwitch — "
+                    "request blocked."
+                ),
                 block_code=AGENTGUARD_SESSION_KILLED,
             )
 
         events: list[SecurityEvent] = []
         allowed = True
-        block_reason: Optional[str] = None
-        block_code: Optional[int] = None
+        block_reason: str | None = None
+        block_code: int | None = None
 
         if request.method == "tools/call":
             try:
@@ -239,8 +249,15 @@ class MCPInterceptor:
                         decision = self._request_approval(
                             events=events,
                             action=f"tool_call:{params.name}",
-                            reason=f"Injection detected in tool arguments: {[m.pattern_name for m in matches]}",
-                            payload={"tool": params.name, "arguments": params.arguments, "flags": flags},
+                            reason=(
+                                "Injection detected in tool arguments: "
+                                f"{[m.pattern_name for m in matches]}"
+                            ),
+                            payload={
+                                "tool": params.name,
+                                "arguments": params.arguments,
+                                "flags": flags,
+                            },
                         )
                         if decision == "deny":
                             allowed = False
@@ -251,7 +268,9 @@ class MCPInterceptor:
                             block_code = AGENTGUARD_INJECTION_DETECTED
 
                 # 2. Argument-level constraint check (path traversal, SSRF, shell metachars, ...)
-                violations = self._policy.check_arguments(self.agent_id, params.name, params.arguments)
+                violations = self._policy.check_arguments(
+                    self.agent_id, params.name, params.arguments
+                )
                 if violations:
                     violation_flags = [v.flag for v in violations]
                     event = SecurityEvent(
@@ -349,7 +368,8 @@ class MCPInterceptor:
                         if decision == "deny":
                             allowed = False
                             block_reason = (
-                                f"Tool '{params.name}' denied by policy and approver: {policy_result.reason}"
+                                f"Tool '{params.name}' denied by policy and approver: "
+                                f"{policy_result.reason}"
                             )
                             block_code = AGENTGUARD_POLICY_VIOLATION
 
@@ -380,7 +400,10 @@ class MCPInterceptor:
                         decision = self._request_approval(
                             events=events,
                             action=f"tool_call:{params.name}",
-                            reason=f"Low-trust session (score={score:.2f}) attempting {params.name}",
+                            reason=(
+                                f"Low-trust session (score={score:.2f}) "
+                                f"attempting {params.name}"
+                            ),
                             payload={"tool": params.name, "trust_score": score},
                         )
                         if decision == "deny":

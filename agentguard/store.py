@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
-from typing import Optional
 
 from sqlalchemy import (
     Column,
@@ -15,7 +13,7 @@ from sqlalchemy import (
     Text,
     select,
 )
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
 from .events import SecurityEvent
@@ -64,9 +62,7 @@ class EventStore:
 
     def __init__(self, database_url: str = _DEFAULT_URL) -> None:
         self._engine = create_async_engine(database_url, echo=False)
-        self._session_factory = async_sessionmaker(
-            self._engine, expire_on_commit=False
-        )
+        self._session_factory = async_sessionmaker(self._engine, expire_on_commit=False)
 
     async def initialize(self) -> None:
         """Create tables if they do not already exist."""
@@ -93,7 +89,7 @@ class EventStore:
             async with session.begin():
                 session.add(record)
 
-    async def get_event(self, event_id: str) -> Optional[SecurityEvent]:
+    async def get_event(self, event_id: str) -> SecurityEvent | None:
         """Fetch a single event by ID, or None if not found."""
         async with self._session_factory() as session:
             row = await session.get(EventRecord, event_id)
@@ -101,9 +97,9 @@ class EventStore:
 
     async def list_events(
         self,
-        session_id: Optional[str] = None,
-        severity: Optional[str] = None,
-        event_type: Optional[str] = None,
+        session_id: str | None = None,
+        severity: str | None = None,
+        event_type: str | None = None,
         limit: int = 200,
         offset: int = 0,
     ) -> list[SecurityEvent]:
@@ -124,20 +120,24 @@ class EventStore:
 
     async def list_sessions(self) -> list[dict]:
         """Return summary stats per session_id."""
-        from sqlalchemy import func, case
+        from sqlalchemy import case, func
 
-        stmt = select(
-            EventRecord.session_id,
-            func.count(EventRecord.event_id).label("total"),
-            func.sum(
-                case((EventRecord.severity == "critical", 1), else_=0)
-            ).label("critical_count"),
-            func.sum(
-                case((EventRecord.severity == "warning", 1), else_=0)
-            ).label("warning_count"),
-            func.min(EventRecord.timestamp).label("started_at"),
-            func.max(EventRecord.timestamp).label("last_seen"),
-        ).group_by(EventRecord.session_id).order_by(func.max(EventRecord.timestamp).desc())
+        stmt = (
+            select(
+                EventRecord.session_id,
+                func.count(EventRecord.event_id).label("total"),
+                func.sum(case((EventRecord.severity == "critical", 1), else_=0)).label(
+                    "critical_count"
+                ),
+                func.sum(case((EventRecord.severity == "warning", 1), else_=0)).label(
+                    "warning_count"
+                ),
+                func.min(EventRecord.timestamp).label("started_at"),
+                func.max(EventRecord.timestamp).label("last_seen"),
+            )
+            .group_by(EventRecord.session_id)
+            .order_by(func.max(EventRecord.timestamp).desc())
+        )
 
         async with self._session_factory() as session:
             result = await session.execute(stmt)

@@ -76,7 +76,10 @@ try:
         messages=[
             {
                 "role": "system",
-                "content": "You are a helpful security research assistant. Summarize the provided content.",
+                "content": (
+                    "You are a helpful security research assistant. "
+                    "Summarize the provided content."
+                ),
             },
             {
                 "role": "user",
@@ -100,7 +103,7 @@ print("-" * 60)
 events = bus.get_session_events(SESSION_ID)
 flagged = [e for e in events if e.severity in ("warning", "critical")]
 
-print(f"[AgentGuard] Session summary:")
+print("[AgentGuard] Session summary:")
 print(f"  Total events   : {len(events)}")
 print(f"  Flagged events : {len(flagged)}")
 print(f"  Trust score    : {client.trust_score():.2f}")

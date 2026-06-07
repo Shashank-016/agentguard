@@ -25,9 +25,13 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
-from .async_client import _dispatch_violation_async, _handle_engine_error_async, _raise_if_killed_async
+from .async_client import (
+    _dispatch_violation_async,
+    _handle_engine_error_async,
+    _raise_if_killed_async,
+)
 from .audit import AuditLogger
 from .bus import EventBus
 from .client import AgentGuardException, _dispatch_violation, _handle_engine_error, _raise_if_killed
@@ -41,7 +45,8 @@ logger = logging.getLogger(__name__)
 
 
 def _tool_def_name(tool_def: dict) -> str:
-    """Extract a tool's name from an OpenAI-format ``{"type": "function", "function": {...}}`` definition."""
+    """Extract a tool's name from an OpenAI-format
+    ``{"type": "function", "function": {...}}`` definition."""
     return tool_def.get("function", {}).get("name", "unknown")
 
 
@@ -64,7 +69,8 @@ def _parse_tool_arguments(raw: Any) -> dict:
 
 
 def _violation_payloads(violations: Any) -> list[dict]:
-    """Serialize a list of :class:`~agentguard.engine.constraints.ConstraintViolation` for event payloads."""
+    """Serialize a list of :class:`~agentguard.engine.constraints.ConstraintViolation`
+    for event payloads."""
     return [
         {"constraint": v.constraint, "argument": v.argument, "value": v.value, "detail": v.detail}
         for v in violations
@@ -72,7 +78,7 @@ def _violation_payloads(violations: Any) -> list[dict]:
 
 
 def _evaluate_openai_tool_call_sync(
-    g: "GuardedOpenAI", llm_event_id: str, tool_name: str, tool_input: dict
+    g: GuardedOpenAI, llm_event_id: str, tool_name: str, tool_input: dict
 ) -> None:
     """Run the trust/policy/argument-constraint checks for one OpenAI function call.
 
@@ -203,6 +209,7 @@ def _evaluate_openai_tool_call_sync(
 # Sync wrapper
 # ---------------------------------------------------------------------------
 
+
 class GuardedChatCompletions:
     """Proxy for ``client.chat.completions`` that intercepts ``.create()`` calls.
 
@@ -212,7 +219,7 @@ class GuardedChatCompletions:
     the model returns.
     """
 
-    def __init__(self, guard: "GuardedOpenAI") -> None:
+    def __init__(self, guard: GuardedOpenAI) -> None:
         self._guard = guard
         self._underlying = guard._client.chat.completions
 
@@ -246,7 +253,11 @@ class GuardedChatCompletions:
         except Exception as exc:
             policy_violations = []
             _handle_engine_error(
-                g, source="openai", phase="tool_definition_policy_check", parent_event_id=llm_event_id, exc=exc
+                g,
+                source="openai",
+                phase="tool_definition_policy_check",
+                parent_event_id=llm_event_id,
+                exc=exc,
             )
 
         # --- 3. Emit llm_call event -----------------------------------------
@@ -275,9 +286,11 @@ class GuardedChatCompletions:
         # --- 4. Injection events ---------------------------------------------
         if injection_matches:
             flags = [m.flag for m in injection_matches]
-            max_severity = "critical" if any(
-                m.severity == "critical" for m in injection_matches
-            ) else "warning"
+            max_severity = (
+                "critical"
+                if any(m.severity == "critical" for m in injection_matches)
+                else "warning"
+            )
 
             g._trust_scorer.record_injection_flag(g.session_id)
             trust_score = g._trust_scorer.score(g.session_id)
@@ -383,7 +396,7 @@ class GuardedChatCompletions:
 class _GuardedChatNamespace:
     """Proxy for ``client.chat`` that exposes the intercepted ``completions`` namespace."""
 
-    def __init__(self, guard: "GuardedOpenAI") -> None:
+    def __init__(self, guard: GuardedOpenAI) -> None:
         self._guard = guard
         self._underlying = guard._client.chat
 
@@ -462,16 +475,16 @@ class GuardedOpenAI:
     def __init__(
         self,
         client: Any,
-        session_id: Optional[str] = None,
+        session_id: str | None = None,
         agent_id: str = "default",
-        policy_path: Optional[str] = None,
-        bus: Optional[EventBus] = None,
+        policy_path: str | None = None,
+        bus: EventBus | None = None,
         mode: Literal["observe", "enforce", "interactive"] = "observe",
-        trust_scorer: Optional[TrustScorer] = None,
+        trust_scorer: TrustScorer | None = None,
         use_embeddings: bool = False,
-        approval_gate: Optional[ApprovalGate] = None,
-        kill_switch: Optional[KillSwitch] = None,
-        audit_log: Optional[str] = None,
+        approval_gate: ApprovalGate | None = None,
+        kill_switch: KillSwitch | None = None,
+        audit_log: str | None = None,
     ) -> None:
         self._client = client
         self.session_id = session_id or str(uuid.uuid4())
@@ -485,7 +498,7 @@ class GuardedOpenAI:
         self._approval_gate = approval_gate or (ApprovalGate() if mode == "interactive" else None)
         self._kill_switch = kill_switch if kill_switch is not None else get_default_kill_switch()
 
-        self._audit_logger: Optional[AuditLogger] = None
+        self._audit_logger: AuditLogger | None = None
         if audit_log is not None:
             self._audit_logger = AuditLogger(path=audit_log)
             self._bus.subscribe(self._audit_logger)
@@ -501,7 +514,9 @@ class GuardedOpenAI:
                 payload=make_payload(mode=mode, policy_path=policy_path or "none"),
             )
         )
-        logger.info("[AgentGuard] Session %s started (agent=%s, mode=%s)", self.session_id, agent_id, mode)
+        logger.info(
+            "[AgentGuard] Session %s started (agent=%s, mode=%s)", self.session_id, agent_id, mode
+        )
 
     @property
     def chat(self) -> _GuardedChatNamespace:
@@ -539,7 +554,7 @@ class GuardedOpenAI:
 
 
 async def _evaluate_openai_tool_call_async(
-    g: "AsyncGuardedOpenAI", llm_event_id: str, tool_name: str, tool_input: dict
+    g: AsyncGuardedOpenAI, llm_event_id: str, tool_name: str, tool_input: dict
 ) -> None:
     """Run the trust/policy/argument-constraint checks for one OpenAI function call.
 
@@ -668,6 +683,7 @@ async def _evaluate_openai_tool_call_async(
 # Async wrapper
 # ---------------------------------------------------------------------------
 
+
 class AsyncGuardedChatCompletions:
     """Proxy for ``client.chat.completions`` that intercepts async ``.create()`` calls.
 
@@ -675,7 +691,7 @@ class AsyncGuardedChatCompletions:
     full pipeline description.
     """
 
-    def __init__(self, guard: "AsyncGuardedOpenAI") -> None:
+    def __init__(self, guard: AsyncGuardedOpenAI) -> None:
         self._guard = guard
         self._underlying = guard._client.chat.completions
 
@@ -709,7 +725,11 @@ class AsyncGuardedChatCompletions:
         except Exception as exc:
             policy_violations = []
             await _handle_engine_error_async(
-                g, source="openai", phase="tool_definition_policy_check", parent_event_id=llm_event_id, exc=exc
+                g,
+                source="openai",
+                phase="tool_definition_policy_check",
+                parent_event_id=llm_event_id,
+                exc=exc,
             )
 
         # --- 3. Emit llm_call event
@@ -738,9 +758,11 @@ class AsyncGuardedChatCompletions:
         # --- 4. Injection events
         if injection_matches:
             flags = [m.flag for m in injection_matches]
-            max_severity = "critical" if any(
-                m.severity == "critical" for m in injection_matches
-            ) else "warning"
+            max_severity = (
+                "critical"
+                if any(m.severity == "critical" for m in injection_matches)
+                else "warning"
+            )
 
             g._trust_scorer.record_injection_flag(g.session_id)
             trust_score = g._trust_scorer.score(g.session_id)
@@ -845,7 +867,7 @@ class AsyncGuardedChatCompletions:
 class _AsyncGuardedChatNamespace:
     """Proxy for ``client.chat`` that exposes the intercepted async ``completions`` namespace."""
 
-    def __init__(self, guard: "AsyncGuardedOpenAI") -> None:
+    def __init__(self, guard: AsyncGuardedOpenAI) -> None:
         self._guard = guard
         self._underlying = guard._client.chat
 
@@ -884,16 +906,16 @@ class AsyncGuardedOpenAI:
     def __init__(
         self,
         client: Any,
-        session_id: Optional[str] = None,
+        session_id: str | None = None,
         agent_id: str = "default",
-        policy_path: Optional[str] = None,
-        bus: Optional[EventBus] = None,
+        policy_path: str | None = None,
+        bus: EventBus | None = None,
         mode: Literal["observe", "enforce", "interactive"] = "observe",
-        trust_scorer: Optional[TrustScorer] = None,
+        trust_scorer: TrustScorer | None = None,
         use_embeddings: bool = False,
-        approval_gate: Optional[ApprovalGate] = None,
-        kill_switch: Optional[KillSwitch] = None,
-        audit_log: Optional[str] = None,
+        approval_gate: ApprovalGate | None = None,
+        kill_switch: KillSwitch | None = None,
+        audit_log: str | None = None,
     ) -> None:
         self._client = client
         self.session_id = session_id or str(uuid.uuid4())
@@ -907,7 +929,7 @@ class AsyncGuardedOpenAI:
         self._approval_gate = approval_gate or (ApprovalGate() if mode == "interactive" else None)
         self._kill_switch = kill_switch if kill_switch is not None else get_default_kill_switch()
 
-        self._audit_logger: Optional[AuditLogger] = None
+        self._audit_logger: AuditLogger | None = None
         if audit_log is not None:
             self._audit_logger = AuditLogger(path=audit_log)
             self._bus.subscribe(self._audit_logger)

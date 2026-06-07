@@ -13,7 +13,7 @@ import logging
 import re
 from dataclasses import dataclass
 from fnmatch import fnmatch
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 if TYPE_CHECKING:
@@ -51,7 +51,8 @@ class ConstraintViolation:
 
     @property
     def flag(self) -> str:
-        """Return the event-flag identifier for this violation, e.g. ``"constraint:ssrf_target"``."""
+        """Return the event-flag identifier for this violation, e.g.
+        ``"constraint:ssrf_target"``."""
         return f"constraint:{self.constraint}"
 
 
@@ -108,7 +109,7 @@ def _is_url_like(name: str, value: str) -> bool:
     return value.startswith(_URL_VALUE_PREFIXES)
 
 
-def _extract_host(value: str) -> Optional[str]:
+def _extract_host(value: str) -> str | None:
     """Extract a hostname from a URL string or return the bare value as a host candidate."""
     if "://" in value:
         try:
@@ -119,7 +120,7 @@ def _extract_host(value: str) -> Optional[str]:
     return value.split("/")[0].split(":")[0]
 
 
-def _matches_ssrf_host(host: Optional[str]) -> bool:
+def _matches_ssrf_host(host: str | None) -> bool:
     if not host:
         return False
     host = host.lower()
@@ -173,7 +174,7 @@ class ArgumentConstraintChecker:
         self,
         tool_name: str,
         arguments: dict[str, Any],
-        constraints: Optional["ToolConstraints"] = None,
+        constraints: ToolConstraints | None = None,
     ) -> list[ConstraintViolation]:
         """Return all constraint violations for a tool call. Empty list = clean."""
         violations: list[ConstraintViolation] = []
@@ -253,7 +254,7 @@ class ArgumentConstraintChecker:
     def _check_configured(
         self,
         string_args: list[tuple[str, str]],
-        constraints: "ToolConstraints",
+        constraints: ToolConstraints,
     ) -> list[ConstraintViolation]:
         violations: list[ConstraintViolation] = []
 
@@ -286,7 +287,9 @@ class ArgumentConstraintChecker:
             is_url = _is_url_like(name, value)
 
             if is_path:
-                if constraints.path_denylist and _matches_any_glob(value, constraints.path_denylist):
+                if constraints.path_denylist and _matches_any_glob(
+                    value, constraints.path_denylist
+                ):
                     violations.append(
                         ConstraintViolation(
                             constraint="path_denied",
@@ -312,8 +315,10 @@ class ArgumentConstraintChecker:
 
             if is_url:
                 host = _extract_host(value)
-                if constraints.url_denylist and host and _matches_any_glob(
-                    host, constraints.url_denylist
+                if (
+                    constraints.url_denylist
+                    and host
+                    and _matches_any_glob(host, constraints.url_denylist)
                 ):
                     violations.append(
                         ConstraintViolation(
@@ -323,8 +328,10 @@ class ArgumentConstraintChecker:
                             detail=f"Argument '{name}' targets a denied host '{host}'",
                         )
                     )
-                if constraints.url_allowlist and host and not _matches_any_glob(
-                    host, constraints.url_allowlist
+                if (
+                    constraints.url_allowlist
+                    and host
+                    and not _matches_any_glob(host, constraints.url_allowlist)
                 ):
                     violations.append(
                         ConstraintViolation(

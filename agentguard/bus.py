@@ -8,7 +8,7 @@ import logging
 import threading
 import time
 from collections import deque
-from typing import Callable, Optional
+from collections.abc import Callable
 
 from .events import SecurityEvent
 
@@ -42,8 +42,8 @@ class EventBus:
         # asyncio event loop. Started lazily on first emit() when a store is
         # attached, so sync callers (no running loop) still get durable
         # persistence via asyncio.run_coroutine_threadsafe().
-        self._worker_loop: Optional[asyncio.AbstractEventLoop] = None
-        self._worker_thread: Optional[threading.Thread] = None
+        self._worker_loop: asyncio.AbstractEventLoop | None = None
+        self._worker_thread: threading.Thread | None = None
         self._worker_lock = threading.Lock()
         self._pending_futures: set[concurrent.futures.Future] = set()
         self._pending_lock = threading.Lock()
@@ -60,7 +60,11 @@ class EventBus:
         owns it), and the caller blocks only until it's confirmed running.
         """
         with self._worker_lock:
-            if self._worker_loop is not None and self._worker_thread is not None and self._worker_thread.is_alive():
+            if (
+                self._worker_loop is not None
+                and self._worker_thread is not None
+                and self._worker_thread.is_alive()
+            ):
                 return self._worker_loop
 
             ready = threading.Event()
@@ -100,7 +104,7 @@ class EventBus:
         with self._pending_lock:
             self._pending_futures.add(future)
 
-        def _on_done(fut: "concurrent.futures.Future") -> None:
+        def _on_done(fut: concurrent.futures.Future) -> None:
             with self._pending_lock:
                 self._pending_futures.discard(fut)
             if fut.cancelled():

@@ -15,7 +15,8 @@ from __future__ import annotations
 import threading
 import time
 from collections import OrderedDict
-from typing import Callable, Generic, TypeVar
+from collections.abc import Callable
+from typing import Generic, TypeVar
 
 K = TypeVar("K")
 V = TypeVar("V")
@@ -44,7 +45,7 @@ class BoundedStateStore(Generic[K, V]):
     ) -> None:
         self._max_entries = max_entries
         self._ttl_seconds = ttl_seconds
-        self._entries: "OrderedDict[K, V]" = OrderedDict()
+        self._entries: OrderedDict[K, V] = OrderedDict()
         self._access_times: dict[K, float] = {}
         self._lock = threading.Lock()
 

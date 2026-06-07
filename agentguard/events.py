@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -50,7 +50,7 @@ class SecurityEvent(BaseModel):
     # Triggered rule identifiers, e.g. "injection:jailbreak_attempt".
     flags: list[str] = []
     # Links this event to the upstream event that caused it.
-    parent_event_id: Optional[str] = None
+    parent_event_id: str | None = None
     metadata: dict[str, Any] = {}
 
     model_config = {

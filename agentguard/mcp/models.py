@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal, Optional, Union
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -11,18 +11,18 @@ class MCPRequest(BaseModel):
     """A JSON-RPC 2.0 request message."""
 
     jsonrpc: Literal["2.0"] = "2.0"
-    id: Union[str, int, None] = None
+    id: str | int | None = None
     method: str
-    params: Optional[dict[str, Any]] = None
+    params: dict[str, Any] | None = None
 
 
 class MCPResponse(BaseModel):
     """A JSON-RPC 2.0 response message."""
 
     jsonrpc: Literal["2.0"] = "2.0"
-    id: Union[str, int, None] = None
-    result: Optional[dict[str, Any]] = None
-    error: Optional[dict[str, Any]] = None
+    id: str | int | None = None
+    result: dict[str, Any] | None = None
+    error: dict[str, Any] | None = None
 
 
 class MCPToolCallParams(BaseModel):
@@ -36,8 +36,8 @@ class MCPToolDefinition(BaseModel):
     """A tool definition returned by ``tools/list``."""
 
     name: str
-    description: Optional[str] = None
-    inputSchema: Optional[dict[str, Any]] = None
+    description: str | None = None
+    inputSchema: dict[str, Any] | None = None
 
 
 class MCPError(BaseModel):
@@ -45,7 +45,7 @@ class MCPError(BaseModel):
 
     code: int
     message: str
-    data: Optional[Any] = None
+    data: Any | None = None
 
 
 # Standard JSON-RPC 2.0 error codes

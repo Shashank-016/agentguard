@@ -81,9 +81,10 @@ async def main() -> None:
         else:
             # Simulate intercept-only
             from agentguard.mcp.models import MCPRequest
+
             req = MCPRequest(**list_req)
             result = interceptor.intercept(req)
-            print(f"\n[1] tools/list → intercepted (node_traversal logged)")
+            print("\n[1] tools/list → intercepted (node_traversal logged)")
 
         # Tool call 2: read the malicious file
         interceptor._trust.record_external_content("mcp-demo-001", "file")
@@ -101,9 +102,13 @@ async def main() -> None:
             print(f"[2] read_file → {'OK' if 'result' in resp else 'BLOCKED'}")
         else:
             from agentguard.mcp.models import MCPRequest
+
             req = MCPRequest(**read_req)
             result = interceptor.intercept(req)
-            print(f"[2] read_file → {'allowed' if result.allowed else 'BLOCKED'} (trust score degraded)")
+            print(
+                f"[2] read_file → {'allowed' if result.allowed else 'BLOCKED'} "
+                "(trust score degraded)"
+            )
 
         # Tool call 3: write based on injected instructions (should be blocked)
         write_req = {
@@ -122,7 +127,7 @@ async def main() -> None:
             resp = await proxy.handle(write_req)
         else:
             from agentguard.mcp.models import MCPRequest, MCPResponse
-            from agentguard.mcp.models import AGENTGUARD_INJECTION_DETECTED
+
             req = MCPRequest(**write_req)
             result = interceptor.intercept(req)
             if not result.allowed and interceptor.mode == "enforce":
@@ -138,10 +143,10 @@ async def main() -> None:
                 resp = {"id": 3, "result": {}}
 
         if "error" in resp:
-            print(f"[3] write_file → BLOCKED ✓")
+            print("[3] write_file → BLOCKED ✓")
             print(f"    Reason: {resp['error']['message']}")
         else:
-            print(f"[3] write_file → ALLOWED (observe mode)")
+            print("[3] write_file → ALLOWED (observe mode)")
 
         if upstream_available:
             await upstream.stop()
@@ -157,14 +162,14 @@ async def main() -> None:
         print(f"Total events    : {len(events)}")
         print(f"Critical alerts : {sum(1 for e in events if e.severity == 'critical')}")
         print(f"Warnings        : {sum(1 for e in events if e.severity == 'warning')}")
-        print(
-            f"Trust score     : {trust:.2f} / 1.0 "
-            f"({'DEGRADED' if trust < 0.5 else 'OK'})"
+        print(f"Trust score     : {trust:.2f} / 1.0 ({'DEGRADED' if trust < 0.5 else 'OK'})")
+        blocked = sum(
+            1
+            for e in events
+            if e.event_type in ("policy_violation", "injection_detected")
+            and interceptor.mode == "enforce"
         )
-        print(
-            f"Blocked actions : "
-            f"{sum(1 for e in events if e.event_type in ('policy_violation', 'injection_detected') and interceptor.mode == 'enforce')}"
-        )
+        print(f"Blocked actions : {blocked}")
         print("=" * 60)
         for e in flagged:
             print(f"  [{e.severity.upper()}] {e.event_type} | flags: {e.flags}")

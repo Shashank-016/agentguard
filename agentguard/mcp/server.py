@@ -6,7 +6,6 @@ import asyncio
 import json
 import logging
 import sys
-from typing import Optional
 
 from .models import PARSE_ERROR
 from .proxy import MCPProxy
@@ -100,7 +99,7 @@ class SSEProxyServer:
     def __init__(self, proxy: MCPProxy, port: int = 8899) -> None:
         self._proxy = proxy
         self.port = port
-        self._app: Optional[object] = None
+        self._app: object | None = None
 
     def _build_app(self) -> object:
         """Build and return the FastAPI application."""
@@ -129,7 +128,7 @@ class SSEProxyServer:
             """Server-Sent Events endpoint for async MCP transport."""
 
             async def event_generator():
-                yield "data: {\"jsonrpc\": \"2.0\", \"method\": \"connected\"}\n\n"
+                yield 'data: {"jsonrpc": "2.0", "method": "connected"}\n\n'
                 # Keep connection alive
                 while not await request.is_disconnected():
                     await asyncio.sleep(15)

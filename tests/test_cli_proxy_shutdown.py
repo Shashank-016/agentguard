@@ -27,11 +27,13 @@ async def test_run_stdio_closes_bus_on_clean_shutdown():
     fake_server = MagicMock()
     fake_server.run = AsyncMock()
 
-    with patch("agentguard.bus.EventBus", return_value=fake_bus), \
-            patch("agentguard.mcp.client.StdioUpstreamClient", return_value=fake_upstream), \
-            patch("agentguard.mcp.interceptor.MCPInterceptor"), \
-            patch("agentguard.mcp.proxy.MCPProxy"), \
-            patch("agentguard.mcp.server.StdioProxyServer", return_value=fake_server):
+    with (
+        patch("agentguard.bus.EventBus", return_value=fake_bus),
+        patch("agentguard.mcp.client.StdioUpstreamClient", return_value=fake_upstream),
+        patch("agentguard.mcp.interceptor.MCPInterceptor"),
+        patch("agentguard.mcp.proxy.MCPProxy"),
+        patch("agentguard.mcp.server.StdioProxyServer", return_value=fake_server),
+    ):
         await _run_stdio(
             upstream_cmd="echo hi",
             agent_id="test-agent",
@@ -53,11 +55,13 @@ async def test_run_stdio_closes_bus_even_when_server_raises():
     fake_server = MagicMock()
     fake_server.run = AsyncMock(side_effect=RuntimeError("boom"))
 
-    with patch("agentguard.bus.EventBus", return_value=fake_bus), \
-            patch("agentguard.mcp.client.StdioUpstreamClient", return_value=fake_upstream), \
-            patch("agentguard.mcp.interceptor.MCPInterceptor"), \
-            patch("agentguard.mcp.proxy.MCPProxy"), \
-            patch("agentguard.mcp.server.StdioProxyServer", return_value=fake_server):
+    with (
+        patch("agentguard.bus.EventBus", return_value=fake_bus),
+        patch("agentguard.mcp.client.StdioUpstreamClient", return_value=fake_upstream),
+        patch("agentguard.mcp.interceptor.MCPInterceptor"),
+        patch("agentguard.mcp.proxy.MCPProxy"),
+        patch("agentguard.mcp.server.StdioProxyServer", return_value=fake_server),
+    ):
         with pytest.raises(RuntimeError, match="boom"):
             await _run_stdio(
                 upstream_cmd="echo hi",
@@ -80,11 +84,13 @@ async def test_run_sse_closes_bus_on_clean_shutdown():
     fake_server = MagicMock()
     fake_server.run = AsyncMock()
 
-    with patch("agentguard.bus.EventBus", return_value=fake_bus), \
-            patch("agentguard.mcp.client.SSEUpstreamClient", return_value=fake_upstream), \
-            patch("agentguard.mcp.interceptor.MCPInterceptor"), \
-            patch("agentguard.mcp.proxy.MCPProxy"), \
-            patch("agentguard.mcp.server.SSEProxyServer", return_value=fake_server):
+    with (
+        patch("agentguard.bus.EventBus", return_value=fake_bus),
+        patch("agentguard.mcp.client.SSEUpstreamClient", return_value=fake_upstream),
+        patch("agentguard.mcp.interceptor.MCPInterceptor"),
+        patch("agentguard.mcp.proxy.MCPProxy"),
+        patch("agentguard.mcp.server.SSEProxyServer", return_value=fake_server),
+    ):
         await _run_sse(
             upstream_url="http://localhost:9999",
             port=8899,

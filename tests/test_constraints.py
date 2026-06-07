@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import tempfile
-
 import pytest
 
 from agentguard.bus import EventBus
@@ -53,6 +51,7 @@ def checker() -> ArgumentConstraintChecker:
 # Built-in detectors
 # ---------------------------------------------------------------------------
 
+
 class TestBuiltinDetectors:
     def test_path_traversal(self, checker):
         violations = checker.check("read_file", {"path": "../../etc/passwd"})
@@ -63,9 +62,7 @@ class TestBuiltinDetectors:
         assert any(v.constraint == "path_traversal" for v in violations)
 
     def test_ssrf_target(self, checker):
-        violations = checker.check(
-            "fetch", {"url": "http://169.254.169.254/latest/meta-data"}
-        )
+        violations = checker.check("fetch", {"url": "http://169.254.169.254/latest/meta-data"})
         assert any(v.constraint == "ssrf_target" for v in violations)
 
     def test_ssrf_target_rfc1918(self, checker):
@@ -110,33 +107,26 @@ class TestBuiltinDetectors:
 # Per-tool configured constraints
 # ---------------------------------------------------------------------------
 
+
 class TestConfiguredConstraints:
     def test_path_allowlist_passes(self, checker):
         constraints = ToolConstraints(path_allowlist=["/tmp/**"])
-        violations = checker.check(
-            "write_file", {"path": "/tmp/ok.txt"}, constraints=constraints
-        )
+        violations = checker.check("write_file", {"path": "/tmp/ok.txt"}, constraints=constraints)
         assert not any(v.constraint == "path_not_allowed" for v in violations)
 
     def test_path_allowlist_blocks_outside(self, checker):
         constraints = ToolConstraints(path_allowlist=["/tmp/**"])
-        violations = checker.check(
-            "write_file", {"path": "/home/x"}, constraints=constraints
-        )
+        violations = checker.check("write_file", {"path": "/home/x"}, constraints=constraints)
         assert any(v.constraint == "path_not_allowed" for v in violations)
 
     def test_path_denylist(self, checker):
         constraints = ToolConstraints(path_denylist=["/etc/**"])
-        violations = checker.check(
-            "write_file", {"path": "/etc/crontab"}, constraints=constraints
-        )
+        violations = checker.check("write_file", {"path": "/etc/crontab"}, constraints=constraints)
         assert any(v.constraint == "path_denied" for v in violations)
 
     def test_url_denylist_bare_host(self, checker):
         constraints = ToolConstraints(url_denylist=["169.254.169.254"])
-        violations = checker.check(
-            "fetch", {"url": "169.254.169.254"}, constraints=constraints
-        )
+        violations = checker.check("fetch", {"url": "169.254.169.254"}, constraints=constraints)
         assert any(v.constraint == "url_denied" for v in violations)
 
     def test_url_denylist_full_url(self, checker):
@@ -162,9 +152,7 @@ class TestConfiguredConstraints:
 
     def test_max_arg_length(self, checker):
         constraints = ToolConstraints(max_arg_length=10)
-        violations = checker.check(
-            "write_file", {"content": "x" * 100}, constraints=constraints
-        )
+        violations = checker.check("write_file", {"content": "x" * 100}, constraints=constraints)
         assert any(v.constraint == "oversized_argument" for v in violations)
 
     def test_arg_denylist(self, checker):
@@ -185,6 +173,7 @@ class TestConfiguredConstraints:
 # ---------------------------------------------------------------------------
 # ToolPolicyEngine.check_arguments
 # ---------------------------------------------------------------------------
+
 
 class TestPolicyEngineCheckArguments:
     def test_loads_tool_constraints_from_yaml(self, engine):
@@ -224,6 +213,7 @@ class TestPolicyEngineCheckArguments:
 # ---------------------------------------------------------------------------
 # MCP interceptor — argument constraint enforcement
 # ---------------------------------------------------------------------------
+
 
 class TestMCPInterceptorConstraints:
     def test_enforce_mode_blocks_constraint_violation(self, policy_file):
@@ -283,8 +273,4 @@ class TestMCPInterceptorConstraints:
         result = interceptor.intercept(request)
 
         assert result.allowed is True
-        assert not any(
-            f.startswith("constraint:")
-            for e in result.events
-            for f in e.flags
-        )
+        assert not any(f.startswith("constraint:") for e in result.events for f in e.flags)

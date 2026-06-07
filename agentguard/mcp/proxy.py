@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Literal, Union
+from typing import Any, Literal
 
 from .client import SSEUpstreamClient, StdioUpstreamClient
 from .interceptor import MCPInterceptor
@@ -35,7 +35,7 @@ class MCPProxy:
 
     def __init__(
         self,
-        upstream: Union[StdioUpstreamClient, SSEUpstreamClient],
+        upstream: StdioUpstreamClient | SSEUpstreamClient,
         interceptor: MCPInterceptor,
         mode: Literal["observe", "enforce", "interactive"] = "observe",
     ) -> None:

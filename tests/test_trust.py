@@ -1,7 +1,8 @@
 """Tests for TrustScorer — score degradation and flagging."""
 
 import pytest
-from agentguard.engine.trust import TrustScorer, TRUSTED, INTERNAL, EXTERNAL, UNTRUSTED
+
+from agentguard.engine.trust import EXTERNAL, TRUSTED, UNTRUSTED, TrustScorer
 
 
 @pytest.fixture

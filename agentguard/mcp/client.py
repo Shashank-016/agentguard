@@ -6,9 +6,8 @@ import asyncio
 import json
 import logging
 import os
-from typing import Optional
 
-from .models import INTERNAL_ERROR, PARSE_ERROR, MCPRequest, MCPResponse
+from .models import INTERNAL_ERROR, MCPRequest, MCPResponse
 
 logger = logging.getLogger(__name__)
 
@@ -25,15 +24,13 @@ class StdioUpstreamClient:
         Optional environment variable overrides for the subprocess.
     """
 
-    def __init__(
-        self, command: list[str], env: Optional[dict[str, str]] = None
-    ) -> None:
+    def __init__(self, command: list[str], env: dict[str, str] | None = None) -> None:
         self.command = command
         self.env = env
-        self._process: Optional[asyncio.subprocess.Process] = None
+        self._process: asyncio.subprocess.Process | None = None
         self._pending: dict[str | int, asyncio.Future] = {}
-        self._reader_task: Optional[asyncio.Task] = None
-        self._stderr_task: Optional[asyncio.Task] = None
+        self._reader_task: asyncio.Task | None = None
+        self._stderr_task: asyncio.Task | None = None
 
     async def start(self) -> None:
         """Spawn the upstream MCP server process."""
@@ -145,9 +142,7 @@ class StdioUpstreamClient:
             # Resolve all pending futures with an error
             for future in self._pending.values():
                 if not future.done():
-                    future.set_exception(
-                        RuntimeError("Upstream process terminated unexpectedly")
-                    )
+                    future.set_exception(RuntimeError("Upstream process terminated unexpectedly"))
             self._pending.clear()
 
     async def _drain_stderr(self) -> None:
@@ -182,10 +177,10 @@ class SSEUpstreamClient:
         Optional HTTP headers (e.g. auth tokens) to include with every request.
     """
 
-    def __init__(self, base_url: str, headers: Optional[dict[str, str]] = None) -> None:
+    def __init__(self, base_url: str, headers: dict[str, str] | None = None) -> None:
         self.base_url = base_url.rstrip("/")
         self.headers = headers or {}
-        self._client: Optional[object] = None
+        self._client: object | None = None
 
     async def start(self) -> None:
         """Initialize the HTTP client."""
@@ -200,8 +195,7 @@ class SSEUpstreamClient:
             logger.info("[AgentGuard/MCP] SSE upstream client connected to %s", self.base_url)
         except ImportError as exc:
             raise RuntimeError(
-                "httpx is required for SSEUpstreamClient. "
-                "Install with: pip install httpx"
+                "httpx is required for SSEUpstreamClient. Install with: pip install httpx"
             ) from exc
 
     async def send(self, request: MCPRequest) -> MCPResponse:

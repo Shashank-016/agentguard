@@ -13,12 +13,10 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
 import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 from .events import SecurityEvent
 
@@ -51,7 +49,7 @@ class ChainVerificationResult:
 
     valid: bool
     records_checked: int
-    first_broken_line: Optional[int]
+    first_broken_line: int | None
     detail: str
 
 
@@ -142,7 +140,7 @@ class AuditLogger:
             with self.path.open("a", encoding="utf-8") as f:
                 f.write(line)
 
-    def verify(self, path: Optional[str] = None) -> ChainVerificationResult:
+    def verify(self, path: str | None = None) -> ChainVerificationResult:
         """Walk an audit file and verify its hash chain is intact.
 
         Recomputes each line's expected ``record_hash`` from its content plus
@@ -165,7 +163,7 @@ class AuditLogger:
             )
 
         lines = [line for line in target.read_text(encoding="utf-8").splitlines() if line.strip()]
-        prev_hash: Optional[str] = None
+        prev_hash: str | None = None
 
         for line_no, line in enumerate(lines, start=1):
             try:
@@ -210,7 +208,10 @@ class AuditLogger:
                     valid=False,
                     records_checked=line_no - 1,
                     first_broken_line=line_no,
-                    detail=f"Line {line_no} record_hash does not match its content — the record was modified",
+                    detail=(
+                        f"Line {line_no} record_hash does not match its content — "
+                        "the record was modified"
+                    ),
                 )
 
             prev_hash = declared_hash
@@ -245,9 +246,9 @@ class AuditLogger:
 
     def search(
         self,
-        session_id: Optional[str] = None,
-        severity: Optional[str] = None,
-        event_type: Optional[str] = None,
+        session_id: str | None = None,
+        severity: str | None = None,
+        event_type: str | None = None,
         limit: int = 500,
     ) -> list[SecurityEvent]:
         """Scan the audit log and return matching events (newest first)."""
@@ -283,7 +284,7 @@ class AuditLogger:
             return {"exists": False, "path": str(self.path)}
         size = self.path.stat().st_size
         lines = self.path.read_text(encoding="utf-8").splitlines()
-        valid = [l for l in lines if l.strip()]
+        valid = [line for line in lines if line.strip()]
         return {
             "path": str(self.path.resolve()),
             "size_bytes": size,
@@ -326,18 +327,26 @@ class AuditLogger:
     @staticmethod
     def _compute_hash(record_with_prev_hash: dict) -> str:
         """Hash a record (which already carries ``prev_hash``, but not ``record_hash``)."""
-        canonical = json.dumps(record_with_prev_hash, sort_keys=True, separators=(",", ":"), default=str)
-        return hashlib.sha256((canonical + record_with_prev_hash["prev_hash"]).encode("utf-8")).hexdigest()
+        canonical = json.dumps(
+            record_with_prev_hash, sort_keys=True, separators=(",", ":"), default=str
+        )
+        return hashlib.sha256(
+            (canonical + record_with_prev_hash["prev_hash"]).encode("utf-8")
+        ).hexdigest()
 
     def _load_last_hash(self) -> None:
         """Resume the hash chain from the last record on disk, if any."""
         if not self.path.exists():
             return
-        lines = [line for line in self.path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        lines = [
+            line for line in self.path.read_text(encoding="utf-8").splitlines() if line.strip()
+        ]
         if not lines:
             return
         try:
             data = json.loads(lines[-1])
             self._last_hash = data.get("record_hash", _GENESIS_HASH)
         except json.JSONDecodeError:
-            logger.warning("[AuditLogger] Could not parse last record in %s — starting a new chain", self.path)
+            logger.warning(
+                "[AuditLogger] Could not parse last record in %s — starting a new chain", self.path
+            )

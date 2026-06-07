@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from typing import Optional
 
 import click
 
@@ -136,9 +135,9 @@ def proxy() -> None:
 def stdio(
     upstream_cmd: str,
     agent_id: str,
-    policy_path: Optional[str],
+    policy_path: str | None,
     mode: str,
-    session_id: Optional[str],
+    session_id: str | None,
 ) -> None:
     """Run an MCP proxy over stdio (wrap a local MCP server subprocess).
 
@@ -170,8 +169,8 @@ def sse(
     port: int,
     agent_id: str,
     mode: str,
-    session_id: Optional[str],
-    policy_path: Optional[str],
+    session_id: str | None,
+    policy_path: str | None,
 ) -> None:
     """Run an MCP proxy over HTTP/SSE (wrap a remote MCP server).
 
@@ -189,9 +188,9 @@ def sse(
 async def _run_stdio(
     upstream_cmd: str,
     agent_id: str,
-    policy_path: Optional[str],
+    policy_path: str | None,
     mode: str,
-    session_id: Optional[str],
+    session_id: str | None,
 ) -> None:
     """Wire up and run a stdio MCP proxy."""
     from .bus import EventBus
@@ -229,8 +228,8 @@ async def _run_sse(
     port: int,
     agent_id: str,
     mode: str,
-    session_id: Optional[str],
-    policy_path: Optional[str],
+    session_id: str | None,
+    policy_path: str | None,
 ) -> None:
     """Wire up and run an SSE MCP proxy."""
     from .bus import EventBus

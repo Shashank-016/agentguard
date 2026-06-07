@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Pattern library
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class _Pattern:
@@ -141,14 +141,14 @@ _RAW_PATTERNS: list[_Pattern] = [
 
 # Compiled once at import time.
 _COMPILED: list[tuple[_Pattern, re.Pattern]] = [
-    (p, re.compile(p.regex, re.IGNORECASE | re.DOTALL))
-    for p in _RAW_PATTERNS
+    (p, re.compile(p.regex, re.IGNORECASE | re.DOTALL)) for p in _RAW_PATTERNS
 ]
 
 
 # ---------------------------------------------------------------------------
 # Match result
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class InjectionMatch:
@@ -205,6 +205,7 @@ _ATTACK_PHRASES = [
 # Detector
 # ---------------------------------------------------------------------------
 
+
 class InjectionDetector:
     """Detects prompt injection attempts via regex patterns and optionally embeddings.
 
@@ -235,12 +236,9 @@ class InjectionDetector:
     def _load_embedding_model(self) -> None:
         try:
             from sentence_transformers import SentenceTransformer
-            import numpy as np
 
             self._model = SentenceTransformer("all-MiniLM-L6-v2")
-            self._attack_embeddings = self._model.encode(
-                _ATTACK_PHRASES, normalize_embeddings=True
-            )
+            self._attack_embeddings = self._model.encode(_ATTACK_PHRASES, normalize_embeddings=True)
             logger.info("InjectionDetector: embedding model loaded")
         except ImportError:
             logger.warning(
@@ -279,9 +277,7 @@ class InjectionDetector:
 
         return matches
 
-    def _scan_embeddings(
-        self, text: str, already_flagged: set[str]
-    ) -> list[InjectionMatch]:
+    def _scan_embeddings(self, text: str, already_flagged: set[str]) -> list[InjectionMatch]:
         """Run embedding similarity against known attack phrases."""
         import numpy as np
 

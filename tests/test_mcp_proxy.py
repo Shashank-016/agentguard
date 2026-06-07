@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 from agentguard.bus import EventBus
 from agentguard.mcp.interceptor import MCPInterceptor
@@ -15,10 +16,10 @@ from agentguard.mcp.models import (
 )
 from agentguard.mcp.proxy import MCPProxy
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_interceptor(
     agent_id: str = "test-agent",
@@ -36,9 +37,7 @@ def _make_interceptor(
     )
 
 
-def _tools_call_request(
-    tool_name: str, arguments: dict, req_id: int = 1
-) -> MCPRequest:
+def _tools_call_request(tool_name: str, arguments: dict, req_id: int = 1) -> MCPRequest:
     return MCPRequest(
         id=req_id,
         method="tools/call",
@@ -49,15 +48,14 @@ def _tools_call_request(
 def _mock_upstream(response: MCPResponse | None = None) -> AsyncMock:
     """Build a mock upstream client."""
     upstream = AsyncMock()
-    upstream.send = AsyncMock(
-        return_value=response or MCPResponse(id=1, result={"ok": True})
-    )
+    upstream.send = AsyncMock(return_value=response or MCPResponse(id=1, result={"ok": True}))
     return upstream
 
 
 # ---------------------------------------------------------------------------
 # MCPInterceptor — clean tool call
 # ---------------------------------------------------------------------------
+
 
 class TestMCPInterceptorClean:
     def test_clean_tool_call_is_allowed(self):
@@ -98,6 +96,7 @@ class TestMCPInterceptorClean:
 # ---------------------------------------------------------------------------
 # MCPInterceptor — injection detection
 # ---------------------------------------------------------------------------
+
 
 class TestMCPInterceptorInjection:
     def test_injection_in_arguments_detected(self):
@@ -159,11 +158,13 @@ class TestMCPInterceptorInjection:
 # MCPInterceptor — policy violations
 # ---------------------------------------------------------------------------
 
+
 class TestMCPInterceptorPolicy:
     def test_policy_violation_event_emitted(self, tmp_path):
         policy_file = tmp_path / "policy.yaml"
         policy_file.write_text(
-            "version: '1'\nagents:\n  test-agent:\n    allowed_tools: [read_file]\n    denied_tools: [write_file]\n"
+            "version: '1'\nagents:\n  test-agent:\n"
+            "    allowed_tools: [read_file]\n    denied_tools: [write_file]\n"
         )
         bus = EventBus()
         interceptor = MCPInterceptor(
@@ -181,7 +182,8 @@ class TestMCPInterceptorPolicy:
     def test_policy_violation_observe_mode_still_allowed(self, tmp_path):
         policy_file = tmp_path / "policy.yaml"
         policy_file.write_text(
-            "version: '1'\nagents:\n  test-agent:\n    allowed_tools: [read_file]\n    denied_tools: [write_file]\n"
+            "version: '1'\nagents:\n  test-agent:\n"
+            "    allowed_tools: [read_file]\n    denied_tools: [write_file]\n"
         )
         bus = EventBus()
         interceptor = MCPInterceptor(
@@ -198,7 +200,8 @@ class TestMCPInterceptorPolicy:
     def test_policy_violation_enforce_mode_blocks(self, tmp_path):
         policy_file = tmp_path / "policy.yaml"
         policy_file.write_text(
-            "version: '1'\nagents:\n  test-agent:\n    allowed_tools: [read_file]\n    denied_tools: [write_file]\n"
+            "version: '1'\nagents:\n  test-agent:\n"
+            "    allowed_tools: [read_file]\n    denied_tools: [write_file]\n"
         )
         bus = EventBus()
         interceptor = MCPInterceptor(
@@ -217,6 +220,7 @@ class TestMCPInterceptorPolicy:
 # ---------------------------------------------------------------------------
 # MCPInterceptor — trust flagging
 # ---------------------------------------------------------------------------
+
 
 class TestMCPInterceptorTrust:
     def test_trust_flag_emitted_when_low_trust_sensitive_tool(self):
@@ -251,6 +255,7 @@ class TestMCPInterceptorTrust:
 # ---------------------------------------------------------------------------
 # MCPProxy — forwarding behaviour
 # ---------------------------------------------------------------------------
+
 
 class TestMCPProxyForwarding:
     @pytest.mark.asyncio
@@ -303,7 +308,7 @@ class TestMCPProxyForwarding:
                 },
             },
         }
-        resp = await proxy.handle(raw)
+        await proxy.handle(raw)
         upstream.send.assert_called_once()
 
     @pytest.mark.asyncio

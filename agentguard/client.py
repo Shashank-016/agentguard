@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Any, Generator, Literal, Optional
+from collections.abc import Generator
+from typing import Any, Literal
 
 from .audit import AuditLogger
 from .bus import EventBus
@@ -49,7 +50,9 @@ def _raise_if_killed(guard: Any, source: str) -> None:
         )
     )
     logger.critical("[AgentGuard] Session %s halted by kill switch", guard.session_id)
-    raise AgentGuardKilled(f"Session '{guard.session_id}' has been killed via KillSwitch — call blocked.")
+    raise AgentGuardKilled(
+        f"Session '{guard.session_id}' has been killed via KillSwitch — call blocked."
+    )
 
 
 def _handle_engine_error(
@@ -58,7 +61,7 @@ def _handle_engine_error(
     source: str,
     phase: str,
     exc: BaseException,
-    parent_event_id: Optional[str] = None,
+    parent_event_id: str | None = None,
 ) -> None:
     """Handle an internal failure of the detection/policy engines.
 
@@ -97,7 +100,7 @@ def _handle_engine_error(
 
 
 def _evaluate_tool_use_sync(
-    g: "GuardedClient", llm_event_id: str, tool_name: str, tool_input: dict
+    g: GuardedClient, llm_event_id: str, tool_name: str, tool_input: dict
 ) -> None:
     """Run the trust/policy/argument-constraint checks for one ``tool_use`` block.
 
@@ -347,11 +350,11 @@ class GuardedStream:
     open, accumulates streamed text, and emits a ``llm_call_complete`` event on close.
     """
 
-    def __init__(self, guard: "GuardedClient", **kwargs: Any) -> None:
+    def __init__(self, guard: GuardedClient, **kwargs: Any) -> None:
         self._guard = guard
         self._kwargs = kwargs
         self._cm: Any = None
-        self._stream_proxy: Optional[_SyncStreamProxy] = None
+        self._stream_proxy: _SyncStreamProxy | None = None
         self._text_buffer: list[str] = []
         self._llm_event_id: str = ""
 
@@ -481,7 +484,7 @@ class GuardedMessages:
     underlying response object.
     """
 
-    def __init__(self, guard: "GuardedClient") -> None:
+    def __init__(self, guard: GuardedClient) -> None:
         self._guard = guard
         self._underlying = guard._client.messages
 
@@ -517,13 +520,15 @@ class GuardedMessages:
                 tool_name = tool_def.get("name", "unknown")
                 result = g._policy_engine.check(g.agent_id, tool_name)
                 if not result.allowed:
-                    policy_violations.append(
-                        f"{tool_name}: {result.reason} [{result.rule_name}]"
-                    )
+                    policy_violations.append(f"{tool_name}: {result.reason} [{result.rule_name}]")
         except Exception as exc:
             policy_violations = []
             _handle_engine_error(
-                g, source="sdk", phase="tool_definition_policy_check", parent_event_id=llm_event_id, exc=exc
+                g,
+                source="sdk",
+                phase="tool_definition_policy_check",
+                parent_event_id=llm_event_id,
+                exc=exc,
             )
 
         # --- 3. Emit llm_call event ----------------------------------------
@@ -553,9 +558,11 @@ class GuardedMessages:
         # --- 4. Injection events -------------------------------------------
         if injection_matches:
             flags = [m.flag for m in injection_matches]
-            max_severity = "critical" if any(
-                m.severity == "critical" for m in injection_matches
-            ) else "warning"
+            max_severity = (
+                "critical"
+                if any(m.severity == "critical" for m in injection_matches)
+                else "warning"
+            )
 
             # Update trust state.
             g._trust_scorer.record_injection_flag(g.session_id)
@@ -737,16 +744,16 @@ class GuardedClient:
     def __init__(
         self,
         client: Any,
-        session_id: Optional[str] = None,
+        session_id: str | None = None,
         agent_id: str = "default",
-        policy_path: Optional[str] = None,
-        bus: Optional[EventBus] = None,
+        policy_path: str | None = None,
+        bus: EventBus | None = None,
         mode: Literal["observe", "enforce", "interactive"] = "observe",
-        trust_scorer: Optional[TrustScorer] = None,
+        trust_scorer: TrustScorer | None = None,
         use_embeddings: bool = False,
-        approval_gate: Optional[ApprovalGate] = None,
-        kill_switch: Optional[KillSwitch] = None,
-        audit_log: Optional[str] = None,
+        approval_gate: ApprovalGate | None = None,
+        kill_switch: KillSwitch | None = None,
+        audit_log: str | None = None,
     ) -> None:
         self._client = client
         self.session_id = session_id or str(uuid.uuid4())
@@ -761,7 +768,7 @@ class GuardedClient:
         self._kill_switch = kill_switch if kill_switch is not None else get_default_kill_switch()
 
         # Wire up durable audit logging if requested.
-        self._audit_logger: Optional[AuditLogger] = None
+        self._audit_logger: AuditLogger | None = None
         if audit_log is not None:
             self._audit_logger = AuditLogger(path=audit_log)
             self._bus.subscribe(self._audit_logger)
@@ -778,7 +785,9 @@ class GuardedClient:
                 payload=make_payload(mode=mode, policy_path=policy_path or "none"),
             )
         )
-        logger.info("[AgentGuard] Session %s started (agent=%s, mode=%s)", self.session_id, agent_id, mode)
+        logger.info(
+            "[AgentGuard] Session %s started (agent=%s, mode=%s)", self.session_id, agent_id, mode
+        )
 
     @property
     def messages(self) -> GuardedMessages:

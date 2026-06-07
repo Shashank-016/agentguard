@@ -33,6 +33,7 @@ def _reset_override():
 # Pattern coverage
 # ---------------------------------------------------------------------------
 
+
 class TestRedactTextPatterns:
     def test_openai_api_key_is_redacted(self):
         text = "use this key: sk-ABCDEFGHIJ1234567890abcdef"
@@ -94,6 +95,7 @@ class TestRedactTextPatterns:
 # Structural redaction (dict/list walking)
 # ---------------------------------------------------------------------------
 
+
 class TestRedactStructure:
     def test_redacts_nested_dicts_and_lists(self):
         value = {
@@ -123,6 +125,7 @@ class TestRedactStructure:
 # make_payload() integration
 # ---------------------------------------------------------------------------
 
+
 class TestMakePayloadRedaction:
     def test_make_payload_redacts_by_default(self):
         payload = make_payload(message="my key is sk-ABCDEFGHIJ1234567890abcdef")
@@ -145,6 +148,7 @@ class TestMakePayloadRedaction:
 # ---------------------------------------------------------------------------
 # Toggle: AGENTGUARD_REDACT env var + programmatic override
 # ---------------------------------------------------------------------------
+
 
 class TestRedactionToggle:
     def test_enabled_by_default_when_unset(self, monkeypatch):

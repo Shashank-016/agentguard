@@ -7,7 +7,6 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 import yaml
 
@@ -20,6 +19,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Policy data models
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class PolicyResult:
@@ -71,13 +71,13 @@ class ToolConstraints:
     path_denylist: list[str] = field(default_factory=list)
     url_allowlist: list[str] = field(default_factory=list)
     url_denylist: list[str] = field(default_factory=list)
-    max_arg_length: Optional[int] = None
+    max_arg_length: int | None = None
     arg_denylist: list[str] = field(default_factory=list)
 
 
 @dataclass
 class _AgentPolicy:
-    allowed_tools: Optional[list[str]]  # None = wildcard
+    allowed_tools: list[str] | None  # None = wildcard
     denied_tools: list[str]
     rate_limits: dict[str, tuple[int, int]]  # tool → (count, window_seconds)
     tool_constraints: dict[str, ToolConstraints] = field(default_factory=dict)
@@ -86,6 +86,7 @@ class _AgentPolicy:
 # ---------------------------------------------------------------------------
 # Rate limiter (token bucket via sliding window)
 # ---------------------------------------------------------------------------
+
 
 class _SlidingWindowCounter:
     """Tracks call counts in a sliding time window per (agent_id, tool_name).
@@ -101,7 +102,7 @@ class _SlidingWindowCounter:
         ttl_seconds: float = DEFAULT_TTL_SECONDS,
     ) -> None:
         # (agent_id, tool_name) → deque of timestamps
-        self._windows: BoundedStateStore[tuple[str, str], "deque[float]"] = BoundedStateStore(
+        self._windows: BoundedStateStore[tuple[str, str], deque[float]] = BoundedStateStore(
             max_entries=max_entries, ttl_seconds=ttl_seconds
         )
 
@@ -171,7 +172,7 @@ class ToolPolicyEngine:
 
     def __init__(
         self,
-        policy_path: Optional[str] = None,
+        policy_path: str | None = None,
         max_rate_limit_entries: int = DEFAULT_MAX_ENTRIES,
         rate_limit_ttl_seconds: float = DEFAULT_TTL_SECONDS,
     ) -> None:

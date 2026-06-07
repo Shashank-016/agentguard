@@ -1,6 +1,7 @@
 """Tests for InjectionDetector — true positive and false positive coverage."""
 
 import pytest
+
 from agentguard.engine.injection import InjectionDetector
 
 
@@ -12,6 +13,7 @@ def detector() -> InjectionDetector:
 # ---------------------------------------------------------------------------
 # True positives — should be detected
 # ---------------------------------------------------------------------------
+
 
 class TestTruePositives:
     def test_ignore_previous_instructions(self, detector):
@@ -76,6 +78,7 @@ class TestTruePositives:
 # False positives — should NOT be flagged
 # ---------------------------------------------------------------------------
 
+
 class TestFalsePositives:
     def test_normal_business_text(self, detector):
         text = (
@@ -113,6 +116,7 @@ class TestFalsePositives:
 # ---------------------------------------------------------------------------
 # Message array scanning
 # ---------------------------------------------------------------------------
+
 
 class TestScanMessages:
     def test_detects_injection_in_user_message(self, detector):

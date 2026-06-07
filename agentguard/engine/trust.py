@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Optional
 
 from ._state import DEFAULT_MAX_ENTRIES, DEFAULT_TTL_SECONDS, BoundedStateStore
 
@@ -21,10 +20,10 @@ logger = logging.getLogger(__name__)
 # Trust levels
 # ---------------------------------------------------------------------------
 
-TRUSTED = 1.0   # Instructions from the human user or system prompt.
+TRUSTED = 1.0  # Instructions from the human user or system prompt.
 INTERNAL = 0.7  # Output from another verified, trusted agent.
 EXTERNAL = 0.3  # Content from the web, files, or user-uploaded documents.
-UNTRUSTED = 0.0 # Flagged or unknown provenance.
+UNTRUSTED = 0.0  # Flagged or unknown provenance.
 
 _SENSITIVE_TOOL_KEYWORDS = frozenset(
     {"write", "exec", "delete", "send", "shell", "post", "rm", "overwrite"}
@@ -113,9 +112,7 @@ class TrustScorer:
             state.score,
         )
 
-    def record_agent_handoff(
-        self, session_id: str, from_agent: str, to_agent: str
-    ) -> None:
+    def record_agent_handoff(self, session_id: str, from_agent: str, to_agent: str) -> None:
         """Signal that session data is being passed between agents.
 
         Cross-agent handoffs apply an INTERNAL-level multiplier to reflect

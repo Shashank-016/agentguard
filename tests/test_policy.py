@@ -1,8 +1,7 @@
 """Tests for ToolPolicyEngine — allow/deny rules and rate limiting."""
 
 import pytest
-import tempfile
-import os
+
 from agentguard.engine.policy import ToolPolicyEngine
 
 POLICY_YAML = """
@@ -48,6 +47,7 @@ def no_policy_engine() -> ToolPolicyEngine:
 # ---------------------------------------------------------------------------
 # Allow / deny
 # ---------------------------------------------------------------------------
+
 
 class TestAllowDeny:
     def test_researcher_allowed_tool(self, engine):
@@ -97,6 +97,7 @@ class TestAllowDeny:
 # No policy file
 # ---------------------------------------------------------------------------
 
+
 class TestNoPolicyFile:
     def test_all_tools_allowed(self, no_policy_engine):
         for tool in ["write_file", "execute_code", "web_search", "anything"]:
@@ -110,6 +111,7 @@ class TestNoPolicyFile:
 # ---------------------------------------------------------------------------
 # Rate limiting
 # ---------------------------------------------------------------------------
+
 
 class TestRateLimiting:
     def test_within_rate_limit(self, engine):
@@ -136,6 +138,7 @@ class TestRateLimiting:
 # Sensitive tool detection
 # ---------------------------------------------------------------------------
 
+
 class TestSensitiveTool:
     def test_write_file_is_sensitive(self, engine):
         assert engine.is_sensitive("write_file") is True
@@ -153,6 +156,7 @@ class TestSensitiveTool:
 # ---------------------------------------------------------------------------
 # PolicyResult fields
 # ---------------------------------------------------------------------------
+
 
 class TestPolicyResult:
     def test_result_has_reason(self, engine):

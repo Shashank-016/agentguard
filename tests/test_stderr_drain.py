@@ -56,7 +56,9 @@ def caplog_debug(caplog):
 class TestStderrDrain:
     @pytest.mark.asyncio
     async def test_stderr_lines_are_logged_at_debug(self, caplog_debug):
-        process = _fake_process(stderr_lines=[b"warning: cache miss\n", b"booting upstream server\n"])
+        process = _fake_process(
+            stderr_lines=[b"warning: cache miss\n", b"booting upstream server\n"]
+        )
 
         with patch("asyncio.create_subprocess_exec", new=AsyncMock(return_value=process)):
             client = StdioUpstreamClient(command=["fake-server"])
@@ -65,7 +67,10 @@ class TestStderrDrain:
                 # Give the background drain task a few ticks to consume both lines.
                 for _ in range(20):
                     await asyncio.sleep(0)
-                    if "warning: cache miss" in caplog_debug.text and "booting upstream server" in caplog_debug.text:
+                    if (
+                        "warning: cache miss" in caplog_debug.text
+                        and "booting upstream server" in caplog_debug.text
+                    ):
                         break
             finally:
                 await client.stop()

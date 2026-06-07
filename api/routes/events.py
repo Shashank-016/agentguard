@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from agentguard.events import SecurityEvent
@@ -16,9 +14,9 @@ router = APIRouter(prefix="/events", tags=["events"], dependencies=[Depends(requ
 
 @router.get("", response_model=list[SecurityEvent])
 async def list_events(
-    session_id: Optional[str] = Query(None),
-    severity: Optional[str] = Query(None),
-    event_type: Optional[str] = Query(None),
+    session_id: str | None = Query(None),
+    severity: str | None = Query(None),
+    event_type: str | None = Query(None),
     limit: int = Query(200, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     store: EventStore = Depends(get_store),

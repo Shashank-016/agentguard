@@ -19,10 +19,10 @@ from agentguard.engine._state import BoundedStateStore
 from agentguard.engine.policy import ToolPolicyEngine
 from agentguard.engine.trust import TrustScorer
 
-
 # ---------------------------------------------------------------------------
 # BoundedStateStore — the shared primitive
 # ---------------------------------------------------------------------------
+
 
 class TestBoundedStateStore:
     def test_lru_eviction_caps_size(self):
@@ -98,6 +98,7 @@ class TestBoundedStateStore:
 # TrustScorer — bounded session state
 # ---------------------------------------------------------------------------
 
+
 class TestTrustScorerBoundedState:
     def test_max_sessions_evicts_least_recently_used(self):
         scorer = TrustScorer(max_sessions=3, ttl_seconds=3600)
@@ -128,6 +129,7 @@ class TestTrustScorerBoundedState:
 # ---------------------------------------------------------------------------
 # ToolPolicyEngine — bounded rate-limit windows
 # ---------------------------------------------------------------------------
+
 
 class TestRateLimiterBoundedState:
     def test_rate_limit_windows_are_bounded_by_lru(self):

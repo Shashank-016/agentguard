@@ -11,8 +11,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Literal, Optional
+from typing import Literal
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Approval gate
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class ApprovalRequest:
@@ -63,7 +65,9 @@ def _cli_prompt_handler(request: ApprovalRequest) -> ApprovalDecision:
     import click
 
     click.echo("")
-    click.echo(f"[AgentGuard] Approval required — session={request.session_id} agent={request.agent_id}")
+    click.echo(
+        f"[AgentGuard] Approval required — session={request.session_id} agent={request.agent_id}"
+    )
     click.echo(f"  action: {request.action}")
     click.echo(f"  reason: {request.reason}")
     click.echo(f"  payload: {request.payload}")
@@ -94,7 +98,7 @@ class ApprovalGate:
         ``"approve"`` or ``"deny"``. Defaults to a CLI y/N prompt.
     """
 
-    def __init__(self, handler: Optional[ApprovalHandler] = None) -> None:
+    def __init__(self, handler: ApprovalHandler | None = None) -> None:
         self._handler = handler or _cli_prompt_handler
 
     def request(self, req: ApprovalRequest) -> ApprovalDecision:
@@ -125,6 +129,7 @@ class ApprovalGate:
 # ---------------------------------------------------------------------------
 # Kill switch
 # ---------------------------------------------------------------------------
+
 
 class KillSwitch:
     """Immediate halt control for agent sessions.
@@ -179,7 +184,7 @@ class KillSwitch:
             return {"global": self._global, "killed_sessions": sorted(self._killed_sessions)}
 
 
-_default_kill_switch: Optional[KillSwitch] = None
+_default_kill_switch: KillSwitch | None = None
 _default_kill_switch_lock = threading.Lock()
 
 

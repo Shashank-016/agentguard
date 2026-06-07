@@ -26,10 +26,10 @@ from agentguard.mcp.interceptor import MCPInterceptor
 from agentguard.mcp.models import AGENTGUARD_ENGINE_ERROR, MCPRequest
 from agentguard.openai_client import GuardedOpenAI
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _mock_anthropic_client():
     client = MagicMock()
@@ -103,12 +103,17 @@ SIMPLE_MESSAGES = [{"role": "user", "content": "Hello there"}]
 # Sync GuardedClient (Anthropic SDK)
 # ---------------------------------------------------------------------------
 
+
 class TestSyncGuardedClientFailClosed:
     def test_enforce_mode_raises_and_emits_engine_error_on_scan_failure(self):
         bus = EventBus()
-        gc = GuardedClient(_mock_anthropic_client(), session_id="fc-sync-1", bus=bus, mode="enforce")
+        gc = GuardedClient(
+            _mock_anthropic_client(), session_id="fc-sync-1", bus=bus, mode="enforce"
+        )
 
-        with patch.object(gc._injection_detector, "scan_messages", side_effect=RuntimeError("scan boom")):
+        with patch.object(
+            gc._injection_detector, "scan_messages", side_effect=RuntimeError("scan boom")
+        ):
             with pytest.raises(AgentGuardException):
                 gc.messages.create(model="m", max_tokens=10, messages=SIMPLE_MESSAGES)
 
@@ -120,9 +125,13 @@ class TestSyncGuardedClientFailClosed:
 
     def test_observe_mode_proceeds_and_emits_engine_error_on_scan_failure(self):
         bus = EventBus()
-        gc = GuardedClient(_mock_anthropic_client(), session_id="fc-sync-2", bus=bus, mode="observe")
+        gc = GuardedClient(
+            _mock_anthropic_client(), session_id="fc-sync-2", bus=bus, mode="observe"
+        )
 
-        with patch.object(gc._injection_detector, "scan_messages", side_effect=RuntimeError("scan boom")):
+        with patch.object(
+            gc._injection_detector, "scan_messages", side_effect=RuntimeError("scan boom")
+        ):
             response = gc.messages.create(model="m", max_tokens=10, messages=SIMPLE_MESSAGES)
 
         assert response is not None
@@ -161,13 +170,18 @@ class TestSyncGuardedClientFailClosed:
 # AsyncGuardedClient (Anthropic SDK)
 # ---------------------------------------------------------------------------
 
+
 class TestAsyncGuardedClientFailClosed:
     def test_enforce_mode_raises_and_emits_engine_error_on_scan_failure(self):
         bus = EventBus()
-        gc = AsyncGuardedClient(_mock_async_anthropic_client(), session_id="fc-async-1", bus=bus, mode="enforce")
+        gc = AsyncGuardedClient(
+            _mock_async_anthropic_client(), session_id="fc-async-1", bus=bus, mode="enforce"
+        )
 
         async def run():
-            with patch.object(gc._injection_detector, "scan_messages", side_effect=RuntimeError("scan boom")):
+            with patch.object(
+                gc._injection_detector, "scan_messages", side_effect=RuntimeError("scan boom")
+            ):
                 with pytest.raises(AgentGuardException):
                     await gc.messages.create(model="m", max_tokens=10, messages=SIMPLE_MESSAGES)
 
@@ -180,11 +194,15 @@ class TestAsyncGuardedClientFailClosed:
 
     def test_observe_mode_proceeds_and_emits_engine_error_on_tool_evaluation_failure(self):
         bus = EventBus()
-        client = _tool_use_async_anthropic_client(tool_name="write_file", tool_input={"path": "/tmp/x"})
+        client = _tool_use_async_anthropic_client(
+            tool_name="write_file", tool_input={"path": "/tmp/x"}
+        )
         gc = AsyncGuardedClient(client, session_id="fc-async-2", bus=bus, mode="observe")
 
         async def run():
-            with patch.object(gc._trust_scorer, "should_flag", side_effect=RuntimeError("trust boom")):
+            with patch.object(
+                gc._trust_scorer, "should_flag", side_effect=RuntimeError("trust boom")
+            ):
                 return await gc.messages.create(model="m", max_tokens=10, messages=SIMPLE_MESSAGES)
 
         response = asyncio.run(run())
@@ -199,12 +217,15 @@ class TestAsyncGuardedClientFailClosed:
 # GuardedOpenAI (sync)
 # ---------------------------------------------------------------------------
 
+
 class TestGuardedOpenAIFailClosed:
     def test_enforce_mode_raises_and_emits_engine_error_on_scan_failure(self):
         bus = EventBus()
         gc = GuardedOpenAI(_mock_openai_client(), session_id="fc-openai-1", bus=bus, mode="enforce")
 
-        with patch.object(gc._injection_detector, "scan_messages", side_effect=RuntimeError("scan boom")):
+        with patch.object(
+            gc._injection_detector, "scan_messages", side_effect=RuntimeError("scan boom")
+        ):
             with pytest.raises(AgentGuardException):
                 gc.chat.completions.create(model="m", messages=SIMPLE_MESSAGES)
 
@@ -218,7 +239,9 @@ class TestGuardedOpenAIFailClosed:
         client = _tool_call_openai_client(tool_name="write_file", tool_arguments={"path": "/tmp/x"})
         gc = GuardedOpenAI(client, session_id="fc-openai-2", bus=bus, mode="enforce")
 
-        with patch.object(gc._policy_engine, "check_arguments", side_effect=RuntimeError("policy boom")):
+        with patch.object(
+            gc._policy_engine, "check_arguments", side_effect=RuntimeError("policy boom")
+        ):
             with pytest.raises(AgentGuardException):
                 gc.chat.completions.create(model="m", messages=SIMPLE_MESSAGES)
 
@@ -231,7 +254,9 @@ class TestGuardedOpenAIFailClosed:
         client = _tool_call_openai_client(tool_name="write_file", tool_arguments={"path": "/tmp/x"})
         gc = GuardedOpenAI(client, session_id="fc-openai-3", bus=bus, mode="observe")
 
-        with patch.object(gc._policy_engine, "check_arguments", side_effect=RuntimeError("policy boom")):
+        with patch.object(
+            gc._policy_engine, "check_arguments", side_effect=RuntimeError("policy boom")
+        ):
             response = gc.chat.completions.create(model="m", messages=SIMPLE_MESSAGES)
 
         assert response is not None
@@ -243,6 +268,7 @@ class TestGuardedOpenAIFailClosed:
 # MCPInterceptor
 # ---------------------------------------------------------------------------
 
+
 def _make_interceptor(mode: str, bus: EventBus | None = None) -> MCPInterceptor:
     return MCPInterceptor(
         agent_id="test-agent",
@@ -253,7 +279,9 @@ def _make_interceptor(mode: str, bus: EventBus | None = None) -> MCPInterceptor:
 
 
 def _tools_call_request(tool_name: str = "write_file", arguments: dict | None = None) -> MCPRequest:
-    return MCPRequest(id=1, method="tools/call", params={"name": tool_name, "arguments": arguments or {}})
+    return MCPRequest(
+        id=1, method="tools/call", params={"name": tool_name, "arguments": arguments or {}}
+    )
 
 
 class TestMCPInterceptorFailClosed:
@@ -277,7 +305,9 @@ class TestMCPInterceptorFailClosed:
         bus = EventBus()
         interceptor = _make_interceptor("interactive", bus)
 
-        with patch.object(interceptor._policy, "check_arguments", side_effect=RuntimeError("policy boom")):
+        with patch.object(
+            interceptor._policy, "check_arguments", side_effect=RuntimeError("policy boom")
+        ):
             result = interceptor.intercept(_tools_call_request())
 
         assert result.allowed is False
@@ -304,7 +334,9 @@ class TestMCPInterceptorFailClosed:
         bus = EventBus()
         interceptor = _make_interceptor("enforce", bus)
 
-        bad_request = MCPRequest(id=1, method="tools/call", params={"arguments": "not-a-dict-of-args", "name": 12345})
+        bad_request = MCPRequest(
+            id=1, method="tools/call", params={"arguments": "not-a-dict-of-args", "name": 12345}
+        )
         # name=12345 / arguments=str will fail Pydantic validation inside MCPToolCallParams
         result = interceptor.intercept(bad_request)
 

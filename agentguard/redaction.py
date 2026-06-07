@@ -20,17 +20,19 @@ from __future__ import annotations
 
 import os
 import re
-from typing import Any, Optional
+from typing import Any
 
 # Each entry is (kind label, compiled pattern). Order matters where patterns
 # could overlap — more specific patterns are listed first.
-_PATTERNS: list[tuple[str, "re.Pattern[str]"]] = [
-    ("private_key", re.compile(
-        r"-----BEGIN(?: [A-Z0-9 ]+)? PRIVATE KEY-----[\s\S]*?-----END(?: [A-Z0-9 ]+)? PRIVATE KEY-----"
-    )),
-    ("jwt", re.compile(
-        r"\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\b"
-    )),
+_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
+    (
+        "private_key",
+        re.compile(
+            r"-----BEGIN(?: [A-Z0-9 ]+)? PRIVATE KEY-----"
+            r"[\s\S]*?-----END(?: [A-Z0-9 ]+)? PRIVATE KEY-----"
+        ),
+    ),
+    ("jwt", re.compile(r"\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\b")),
     ("github_token", re.compile(r"\bgh[opsu]_[A-Za-z0-9]{30,}\b")),
     ("aws_access_key_id", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
     ("openai_api_key", re.compile(r"\bsk-[A-Za-z0-9_-]{16,}\b")),
@@ -43,10 +45,10 @@ _FALSY = frozenset({"0", "false", "no", "off"})
 # Programmatic override — set via set_redaction_enabled(). Takes precedence
 # over AGENTGUARD_REDACT when not None. Primarily for tests and embedders that
 # need to force a setting regardless of the process environment.
-_override: Optional[bool] = None
+_override: bool | None = None
 
 
-def set_redaction_enabled(enabled: Optional[bool]) -> None:
+def set_redaction_enabled(enabled: bool | None) -> None:
     """Force redaction on/off process-wide, overriding ``AGENTGUARD_REDACT``.
 
     Pass ``None`` to clear the override and fall back to the environment

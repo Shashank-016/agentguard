@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
-from agentguard.audit import AuditLogger, ChainVerificationResult, _GENESIS_HASH
+from agentguard.audit import _GENESIS_HASH, AuditLogger, ChainVerificationResult
 from agentguard.events import SecurityEvent
 
 
@@ -22,12 +20,15 @@ def _make_event(event_type: str = "llm_call", severity: str = "info") -> Securit
 
 
 def _read_records(path) -> list[dict]:
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    return [
+        json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
+    ]
 
 
 # ---------------------------------------------------------------------------
 # Writing — chain fields
 # ---------------------------------------------------------------------------
+
 
 class TestChainedWrites:
     def test_records_carry_hash_fields(self, tmp_path):
@@ -72,6 +73,7 @@ class TestChainedWrites:
 # ---------------------------------------------------------------------------
 # verify()
 # ---------------------------------------------------------------------------
+
 
 class TestVerify:
     def test_untampered_chain_is_valid(self, tmp_path):

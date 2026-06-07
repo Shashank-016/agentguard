@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
 
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -86,12 +86,11 @@ async def require_api_key(
 # Lifespan (replaces @app.on_event which is deprecated)
 # ---------------------------------------------------------------------------
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     global _store
-    db_url = os.getenv(
-        "AGENTGUARD_DB_URL", "sqlite+aiosqlite:///agentguard.db"
-    )
+    db_url = os.getenv("AGENTGUARD_DB_URL", "sqlite+aiosqlite:///agentguard.db")
     _store = EventStore(database_url=db_url)
     await _store.initialize()
     logger.info("AgentGuard API started — store: %s", db_url)
@@ -129,6 +128,7 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
+
 
 @app.get("/health", tags=["meta"])
 async def health() -> dict:

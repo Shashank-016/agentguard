@@ -1,0 +1,25 @@
+============================================================
+AgentGuard MCP Proxy Demo
+============================================================
+
+Note: Upstream MCP server unavailable ([WinError 2] The system cannot find the file specified)
+Running in intercept-only mode (no forwarding).
+
+[1] tools/list → intercepted (node_traversal logged)
+[2] read_file → allowed (trust score degraded)
+[AgentGuard/MCP] injection_detected: file-agent → CRITICAL  tool=write_file  flags=['injection:instruction_override']
+[AgentGuard/MCP] trust_flag: file-agent  tool=write_file  score=0.30
+[3] write_file → BLOCKED ✓
+    Reason: Injection detected in tool arguments: ['instruction_override']
+
+============================================================
+AgentGuard Session Report — mcp-demo-001
+============================================================
+Total events    : 4
+Critical alerts : 1
+Warnings        : 1
+Trust score     : 0.30 / 1.0 (DEGRADED)
+Blocked actions : 1
+============================================================
+  [CRITICAL] injection_detected | flags: ['injection:instruction_override']
+  [WARNING] trust_flag | flags: ['trust:score_0.30']

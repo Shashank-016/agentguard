@@ -10,7 +10,7 @@ calls, scores cross-agent trust, and keeps a tamper-evident audit trail — acro
 OpenAI SDKs, LangGraph, and any MCP server. Drop it in with a one-line change; no rewrite of your
 agent logic.
 
-<!-- DEMO_GIF -->
+![AgentGuard blocking a prompt-injection attack at the tool layer](docs/demo.gif)
 <!-- The demo GIF is added in the next task at docs/demo.gif; this comment marks the insertion point. -->
 
 ## Why

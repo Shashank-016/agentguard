@@ -16,7 +16,6 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Security",
@@ -62,11 +61,12 @@ all = [
 agentguard = "agentguard.cli:cli"
 
 [project.urls]
-Repository = "https://github.com/your-org/agentguard"
-Issues = "https://github.com/your-org/agentguard/issues"
+Homepage = "https://github.com/Shashank-016/agentguard"
+Repository = "https://github.com/Shashank-016/agentguard"
+Issues = "https://github.com/Shashank-016/agentguard/issues"
 
 [tool.hatch.build.targets.wheel]
-packages = ["agentguard", "api"]
+packages = ["agentguard"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

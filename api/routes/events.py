@@ -9,9 +9,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from agentguard.events import SecurityEvent
 from agentguard.store import EventStore
 
-from ..main import get_store
+from ..main import get_store, require_api_key
 
-router = APIRouter(prefix="/events", tags=["events"])
+router = APIRouter(prefix="/events", tags=["events"], dependencies=[Depends(require_api_key)])
 
 
 @router.get("", response_model=list[SecurityEvent])

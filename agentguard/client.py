@@ -52,6 +52,190 @@ def _raise_if_killed(guard: Any, source: str) -> None:
     raise AgentGuardKilled(f"Session '{guard.session_id}' has been killed via KillSwitch — call blocked.")
 
 
+def _handle_engine_error(
+    guard: Any,
+    *,
+    source: str,
+    phase: str,
+    exc: BaseException,
+    parent_event_id: Optional[str] = None,
+) -> None:
+    """Handle an internal failure of the detection/policy engines.
+
+    ``guard`` is any guarded-client-like object exposing ``mode``,
+    ``session_id``, ``agent_id``, and ``_bus`` — shared by
+    :class:`GuardedClient` and :class:`~agentguard.openai_client.GuardedOpenAI`.
+
+    Detection logic (``InjectionDetector.scan``, ``ToolPolicyEngine.check_arguments``,
+    etc.) is not allowed to silently break or bypass security. An internal error
+    here always emits a critical ``engine_error`` event, and:
+
+    * ``enforce``/``interactive`` — **fail closed**: raise
+      :class:`AgentGuardException`, blocking the call. An attacker who can
+      crash the detector must not be able to use that crash to bypass checks.
+    * ``observe`` — **fail open but loud**: the call proceeds (this function
+      simply returns), but the failure is recorded just as critically.
+    """
+    logger.exception("[AgentGuard] Internal security engine error during %s", phase)
+    guard._bus.emit(
+        SecurityEvent(
+            session_id=guard.session_id,
+            agent_id=guard.agent_id,
+            source=source,
+            event_type="engine_error",
+            severity="critical",
+            payload=make_payload(phase=phase, error=str(exc), error_type=type(exc).__name__),
+            flags=["engine:internal_error"],
+            parent_event_id=parent_event_id,
+        )
+    )
+    if guard.mode in ("enforce", "interactive"):
+        raise AgentGuardException(
+            f"Internal security engine error during '{phase}' — failing closed "
+            f"(mode={guard.mode}). {exc}"
+        )
+
+
+def _evaluate_tool_use_sync(
+    g: "GuardedClient", llm_event_id: str, tool_name: str, tool_input: dict
+) -> None:
+    """Run the trust/policy/argument-constraint checks for one ``tool_use`` block.
+
+    Factored out of :meth:`GuardedMessages.create` so the whole
+    security-evaluation section for a single tool call can be wrapped in one
+    try/except at the call site — an internal failure here (a bad regex, a
+    malformed constraint) must not silently let the action through unchecked.
+    See :func:`_handle_engine_error`.
+    """
+    # Trust check before tool execution.
+    if g._trust_scorer.should_flag(g.session_id, tool_name):
+        trust_score = g._trust_scorer.score(g.session_id)
+        g._bus.emit(
+            SecurityEvent(
+                session_id=g.session_id,
+                agent_id=g.agent_id,
+                source="sdk",
+                event_type="trust_flag",
+                severity="warning",
+                payload=make_payload(
+                    tool_name=tool_name,
+                    trust_score=trust_score,
+                    reason=(
+                        f"Agent received output from low-trust session "
+                        f"(score={trust_score:.2f}), attempting {tool_name}"
+                    ),
+                ),
+                flags=["trust:low_score_sensitive_tool"],
+                parent_event_id=llm_event_id,
+                metadata={"trust_score": trust_score},
+            )
+        )
+        logger.warning(
+            "[AgentGuard] trust_flag: %s -> WARNING\n  reason: low-trust "
+            "session (score=%.2f) attempting %s",
+            g.agent_id,
+            trust_score,
+            tool_name,
+        )
+        # Trust flags are warning-only — never hard-block in enforce mode —
+        # but interactive mode still routes them through the approval gate,
+        # giving humans finer-grained control than a blanket policy.
+        _dispatch_violation(
+            g,
+            parent_event_id=llm_event_id,
+            label="Trust flag",
+            action=f"tool_call:{tool_name}",
+            reason=(
+                f"Agent received output from low-trust session "
+                f"(score={trust_score:.2f}), attempting {tool_name}"
+            ),
+            payload={"tool_name": tool_name, "trust_score": trust_score},
+            block_in_enforce=False,
+        )
+
+    # Policy check for the actual tool being called.
+    policy_result = g._policy_engine.check(g.agent_id, tool_name)
+    tool_severity = "info" if policy_result.allowed else "critical"
+    tool_flags = [] if policy_result.allowed else [policy_result.rule_name]
+
+    g._bus.emit(
+        SecurityEvent(
+            session_id=g.session_id,
+            agent_id=g.agent_id,
+            source="sdk",
+            event_type="tool_call" if policy_result.allowed else "policy_violation",
+            severity=tool_severity,
+            payload=make_payload(
+                tool_name=tool_name,
+                tool_input=tool_input,
+                policy_result={
+                    "allowed": policy_result.allowed,
+                    "reason": policy_result.reason,
+                    "rule_name": policy_result.rule_name,
+                },
+            ),
+            flags=tool_flags,
+            parent_event_id=llm_event_id,
+        )
+    )
+    log_msg = (
+        "[AgentGuard] tool_call: %s.%s -> %s"
+        if policy_result.allowed
+        else "[AgentGuard] policy_violation: %s.%s -> CRITICAL\n  reason: %s"
+    )
+    if policy_result.allowed:
+        logger.info(log_msg, g.agent_id, tool_name, "INFO")
+    else:
+        logger.error(log_msg, g.agent_id, tool_name, policy_result.reason)
+
+    # Argument-level constraint check (path traversal, SSRF, etc.)
+    violations = g._policy_engine.check_arguments(g.agent_id, tool_name, tool_input)
+    if violations:
+        violation_flags = [v.flag for v in violations]
+        g._bus.emit(
+            SecurityEvent(
+                session_id=g.session_id,
+                agent_id=g.agent_id,
+                source="sdk",
+                event_type="policy_violation",
+                severity="critical",
+                payload=make_payload(
+                    tool_name=tool_name,
+                    tool_input=tool_input,
+                    violations=[
+                        {
+                            "constraint": v.constraint,
+                            "argument": v.argument,
+                            "value": v.value,
+                            "detail": v.detail,
+                        }
+                        for v in violations
+                    ],
+                ),
+                flags=violation_flags,
+                parent_event_id=llm_event_id,
+            )
+        )
+        logger.error(
+            "[AgentGuard] policy_violation: %s.%s -> CRITICAL\n  argument constraints: %s",
+            g.agent_id,
+            tool_name,
+            [v.detail for v in violations],
+        )
+        _dispatch_violation(
+            g,
+            parent_event_id=llm_event_id,
+            label="Argument constraint violation",
+            action=f"tool_call:{tool_name}",
+            reason=f"Flags: {violation_flags}",
+            payload={
+                "tool_name": tool_name,
+                "tool_input": tool_input,
+                "flags": violation_flags,
+            },
+        )
+
+
 def _dispatch_violation(
     guard: Any,
     *,
@@ -318,17 +502,29 @@ class GuardedMessages:
         llm_event_id = str(uuid.uuid4())
 
         # --- 1. Injection scan --------------------------------------------
-        injection_matches = g._injection_detector.scan_messages(scan_corpus)
+        try:
+            injection_matches = g._injection_detector.scan_messages(scan_corpus)
+        except Exception as exc:
+            injection_matches = []
+            _handle_engine_error(
+                g, source="sdk", phase="injection_scan", parent_event_id=llm_event_id, exc=exc
+            )
 
         # --- 2. Tool policy check -----------------------------------------
         policy_violations: list[str] = []
-        for tool_def in tools:
-            tool_name = tool_def.get("name", "unknown")
-            result = g._policy_engine.check(g.agent_id, tool_name)
-            if not result.allowed:
-                policy_violations.append(
-                    f"{tool_name}: {result.reason} [{result.rule_name}]"
-                )
+        try:
+            for tool_def in tools:
+                tool_name = tool_def.get("name", "unknown")
+                result = g._policy_engine.check(g.agent_id, tool_name)
+                if not result.allowed:
+                    policy_violations.append(
+                        f"{tool_name}: {result.reason} [{result.rule_name}]"
+                    )
+        except Exception as exc:
+            policy_violations = []
+            _handle_engine_error(
+                g, source="sdk", phase="tool_definition_policy_check", parent_event_id=llm_event_id, exc=exc
+            )
 
         # --- 3. Emit llm_call event ----------------------------------------
         g._bus.emit(
@@ -443,132 +639,17 @@ class GuardedMessages:
                     tool_name = getattr(block, "name", "unknown")
                     tool_input = getattr(block, "input", {})
 
-                    # Trust check before tool execution.
-                    if g._trust_scorer.should_flag(g.session_id, tool_name):
-                        trust_score = g._trust_scorer.score(g.session_id)
-                        g._bus.emit(
-                            SecurityEvent(
-                                session_id=g.session_id,
-                                agent_id=g.agent_id,
-                                source="sdk",
-                                event_type="trust_flag",
-                                severity="warning",
-                                payload=make_payload(
-                                    tool_name=tool_name,
-                                    trust_score=trust_score,
-                                    reason=(
-                                        f"Agent received output from low-trust session "
-                                        f"(score={trust_score:.2f}), attempting {tool_name}"
-                                    ),
-                                ),
-                                flags=["trust:low_score_sensitive_tool"],
-                                parent_event_id=llm_event_id,
-                                metadata={"trust_score": trust_score},
-                            )
-                        )
-                        logger.warning(
-                            "[AgentGuard] trust_flag: %s -> WARNING\n  reason: low-trust "
-                            "session (score=%.2f) attempting %s",
-                            g.agent_id,
-                            trust_score,
-                            tool_name,
-                        )
-                        # Trust flags are warning-only — never hard-block in enforce mode —
-                        # but interactive mode still routes them through the approval gate,
-                        # giving humans finer-grained control than a blanket policy.
-                        _dispatch_violation(
+                    try:
+                        _evaluate_tool_use_sync(g, llm_event_id, tool_name, tool_input)
+                    except AgentGuardException:
+                        raise
+                    except Exception as exc:
+                        _handle_engine_error(
                             g,
-                            parent_event_id=llm_event_id,
-                            label="Trust flag",
-                            action=f"tool_call:{tool_name}",
-                            reason=(
-                                f"Agent received output from low-trust session "
-                                f"(score={trust_score:.2f}), attempting {tool_name}"
-                            ),
-                            payload={"tool_name": tool_name, "trust_score": trust_score},
-                            block_in_enforce=False,
-                        )
-
-                    # Policy check for the actual tool being called.
-                    policy_result = g._policy_engine.check(g.agent_id, tool_name)
-                    tool_severity = "info" if policy_result.allowed else "critical"
-                    tool_flags = [] if policy_result.allowed else [policy_result.rule_name]
-
-                    g._bus.emit(
-                        SecurityEvent(
-                            session_id=g.session_id,
-                            agent_id=g.agent_id,
                             source="sdk",
-                            event_type="tool_call" if policy_result.allowed else "policy_violation",
-                            severity=tool_severity,
-                            payload=make_payload(
-                                tool_name=tool_name,
-                                tool_input=tool_input,
-                                policy_result={
-                                    "allowed": policy_result.allowed,
-                                    "reason": policy_result.reason,
-                                    "rule_name": policy_result.rule_name,
-                                },
-                            ),
-                            flags=tool_flags,
+                            phase="post_call_tool_evaluation",
                             parent_event_id=llm_event_id,
-                        )
-                    )
-                    log_msg = (
-                        "[AgentGuard] tool_call: %s.%s -> %s"
-                        if policy_result.allowed
-                        else "[AgentGuard] policy_violation: %s.%s -> CRITICAL\n  reason: %s"
-                    )
-                    if policy_result.allowed:
-                        logger.info(log_msg, g.agent_id, tool_name, "INFO")
-                    else:
-                        logger.error(log_msg, g.agent_id, tool_name, policy_result.reason)
-
-                    # Argument-level constraint check (path traversal, SSRF, etc.)
-                    violations = g._policy_engine.check_arguments(g.agent_id, tool_name, tool_input)
-                    if violations:
-                        violation_flags = [v.flag for v in violations]
-                        g._bus.emit(
-                            SecurityEvent(
-                                session_id=g.session_id,
-                                agent_id=g.agent_id,
-                                source="sdk",
-                                event_type="policy_violation",
-                                severity="critical",
-                                payload=make_payload(
-                                    tool_name=tool_name,
-                                    tool_input=tool_input,
-                                    violations=[
-                                        {
-                                            "constraint": v.constraint,
-                                            "argument": v.argument,
-                                            "value": v.value,
-                                            "detail": v.detail,
-                                        }
-                                        for v in violations
-                                    ],
-                                ),
-                                flags=violation_flags,
-                                parent_event_id=llm_event_id,
-                            )
-                        )
-                        logger.error(
-                            "[AgentGuard] policy_violation: %s.%s -> CRITICAL\n  argument constraints: %s",
-                            g.agent_id,
-                            tool_name,
-                            [v.detail for v in violations],
-                        )
-                        _dispatch_violation(
-                            g,
-                            parent_event_id=llm_event_id,
-                            label="Argument constraint violation",
-                            action=f"tool_call:{tool_name}",
-                            reason=f"Flags: {violation_flags}",
-                            payload={
-                                "tool_name": tool_name,
-                                "tool_input": tool_input,
-                                "flags": violation_flags,
-                            },
+                            exc=exc,
                         )
 
         return response

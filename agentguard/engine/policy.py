@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import logging
 import time
-from collections import defaultdict, deque
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
 import yaml
 
+from ._state import DEFAULT_MAX_ENTRIES, DEFAULT_TTL_SECONDS, BoundedStateStore
 from .constraints import ArgumentConstraintChecker, ConstraintViolation
 
 logger = logging.getLogger(__name__)
@@ -87,16 +88,27 @@ class _AgentPolicy:
 # ---------------------------------------------------------------------------
 
 class _SlidingWindowCounter:
-    """Tracks call counts in a sliding time window per (agent_id, tool_name)."""
+    """Tracks call counts in a sliding time window per (agent_id, tool_name).
 
-    def __init__(self) -> None:
+    Bounded by :class:`~agentguard.engine._state.BoundedStateStore` (TTL +
+    LRU eviction) so a long-running proxy serving many distinct agents/tools
+    doesn't accumulate one deque per pair forever.
+    """
+
+    def __init__(
+        self,
+        max_entries: int = DEFAULT_MAX_ENTRIES,
+        ttl_seconds: float = DEFAULT_TTL_SECONDS,
+    ) -> None:
         # (agent_id, tool_name) → deque of timestamps
-        self._windows: dict[tuple[str, str], deque[float]] = defaultdict(deque)
+        self._windows: BoundedStateStore[tuple[str, str], "deque[float]"] = BoundedStateStore(
+            max_entries=max_entries, ttl_seconds=ttl_seconds
+        )
 
     def is_allowed(self, agent_id: str, tool_name: str, limit: int, window_seconds: int) -> bool:
         key = (agent_id, tool_name)
         now = time.monotonic()
-        window = self._windows[key]
+        window = self._windows.get_or_create(key, deque)
         # Evict timestamps outside the window.
         cutoff = now - window_seconds
         while window and window[0] < cutoff:
@@ -150,11 +162,23 @@ class ToolPolicyEngine:
     ----------
     policy_path:
         Path to a YAML policy file. May be ``None`` (no restrictions).
+    max_rate_limit_entries:
+        Maximum number of distinct (agent_id, tool_name) rate-limit windows
+        to retain at once — bounds memory for long-running proxies.
+    rate_limit_ttl_seconds:
+        Rate-limit windows untouched for longer than this are evicted lazily.
     """
 
-    def __init__(self, policy_path: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        policy_path: Optional[str] = None,
+        max_rate_limit_entries: int = DEFAULT_MAX_ENTRIES,
+        rate_limit_ttl_seconds: float = DEFAULT_TTL_SECONDS,
+    ) -> None:
         self._policies: dict[str, _AgentPolicy] = {}
-        self._rate_counter = _SlidingWindowCounter()
+        self._rate_counter = _SlidingWindowCounter(
+            max_entries=max_rate_limit_entries, ttl_seconds=rate_limit_ttl_seconds
+        )
         self._constraint_checker = ArgumentConstraintChecker()
         if policy_path:
             self._load(policy_path)

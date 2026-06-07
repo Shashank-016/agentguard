@@ -33,6 +33,7 @@ class StdioUpstreamClient:
         self._process: Optional[asyncio.subprocess.Process] = None
         self._pending: dict[str | int, asyncio.Future] = {}
         self._reader_task: Optional[asyncio.Task] = None
+        self._stderr_task: Optional[asyncio.Task] = None
 
     async def start(self) -> None:
         """Spawn the upstream MCP server process."""
@@ -45,6 +46,7 @@ class StdioUpstreamClient:
             env=merged_env,
         )
         self._reader_task = asyncio.create_task(self._read_loop())
+        self._stderr_task = asyncio.create_task(self._drain_stderr())
         logger.info(
             "[AgentGuard/MCP] Upstream process started: %s (pid=%d)",
             " ".join(self.command),
@@ -62,7 +64,7 @@ class StdioUpstreamClient:
         if self._process is None or self._process.stdin is None:
             raise RuntimeError("Upstream client not started — call start() first")
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         future: asyncio.Future[MCPResponse] = loop.create_future()
 
         req_id = request.id
@@ -96,6 +98,13 @@ class StdioUpstreamClient:
             except asyncio.CancelledError:
                 pass
 
+        if self._stderr_task:
+            self._stderr_task.cancel()
+            try:
+                await self._stderr_task
+            except asyncio.CancelledError:
+                pass
+
         if self._process:
             try:
                 self._process.terminate()
@@ -121,7 +130,8 @@ class StdioUpstreamClient:
                         future = self._pending.pop(req_id)
                         if not future.done():
                             future.set_result(response)
-                except (json.JSONDecodeError, Exception) as exc:
+                except (json.JSONDecodeError, ValueError, TypeError) as exc:
+                    # Malformed/unexpected line from upstream — not a reader-loop bug.
                     logger.debug(
                         "[AgentGuard/MCP] Failed to parse upstream line: %s — %s",
                         line[:200],
@@ -139,6 +149,26 @@ class StdioUpstreamClient:
                         RuntimeError("Upstream process terminated unexpectedly")
                     )
             self._pending.clear()
+
+    async def _drain_stderr(self) -> None:
+        """Background task: continuously read and log the upstream process's stderr.
+
+        MCP servers often write diagnostics to stderr. Left unread, the pipe's
+        OS buffer fills up and the subprocess blocks on its next write — a
+        silent deadlock. Logging at DEBUG keeps this output available for
+        troubleshooting without polluting normal operation.
+        """
+        if self._process is None or self._process.stderr is None:
+            return
+        try:
+            async for raw_line in self._process.stderr:
+                line = raw_line.decode(errors="replace").rstrip()
+                if line:
+                    logger.debug("[AgentGuard/MCP] upstream stderr: %s", line)
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            logger.exception("[AgentGuard/MCP] stderr drain task crashed")
 
 
 class SSEUpstreamClient:

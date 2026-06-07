@@ -42,6 +42,159 @@ async def _raise_if_killed_async(guard: Any, source: str) -> None:
     raise AgentGuardKilled(f"Session '{guard.session_id}' has been killed via KillSwitch — call blocked.")
 
 
+async def _handle_engine_error_async(
+    guard: Any,
+    *,
+    source: str,
+    phase: str,
+    exc: BaseException,
+    parent_event_id: Optional[str] = None,
+) -> None:
+    """Async variant of :func:`agentguard.client._handle_engine_error`.
+
+    Uses ``await guard._bus.emit_async(...)`` so the event loop is never
+    blocked. See the sync variant for the fail-closed/fail-open rationale.
+    """
+    logger.exception("[AgentGuard] Internal security engine error during %s", phase)
+    await guard._bus.emit_async(
+        SecurityEvent(
+            session_id=guard.session_id,
+            agent_id=guard.agent_id,
+            source=source,
+            event_type="engine_error",
+            severity="critical",
+            payload=make_payload(phase=phase, error=str(exc), error_type=type(exc).__name__),
+            flags=["engine:internal_error"],
+            parent_event_id=parent_event_id,
+        )
+    )
+    if guard.mode in ("enforce", "interactive"):
+        raise AgentGuardException(
+            f"Internal security engine error during '{phase}' — failing closed "
+            f"(mode={guard.mode}). {exc}"
+        )
+
+
+async def _evaluate_tool_use_async(
+    g: "AsyncGuardedClient", llm_event_id: str, tool_name: str, tool_input: dict
+) -> None:
+    """Async variant of :func:`agentguard.client._evaluate_tool_use_sync`.
+
+    Runs the trust/policy/argument-constraint checks for one ``tool_use``
+    block. Factored out so the whole security-evaluation section for a single
+    tool call can be wrapped in one try/except at the call site — see
+    :func:`_handle_engine_error_async`.
+    """
+    if g._trust_scorer.should_flag(g.session_id, tool_name):
+        trust_score = g._trust_scorer.score(g.session_id)
+        await g._bus.emit_async(
+            SecurityEvent(
+                session_id=g.session_id,
+                agent_id=g.agent_id,
+                source="sdk",
+                event_type="trust_flag",
+                severity="warning",
+                payload=make_payload(
+                    tool_name=tool_name,
+                    trust_score=trust_score,
+                    reason=(
+                        f"Agent received output from low-trust session "
+                        f"(score={trust_score:.2f}), attempting {tool_name}"
+                    ),
+                ),
+                flags=["trust:low_score_sensitive_tool"],
+                parent_event_id=llm_event_id,
+                metadata={"trust_score": trust_score},
+            )
+        )
+        # Trust flags are warning-only — never hard-block in enforce mode —
+        # but interactive mode still routes them through the approval gate.
+        await _dispatch_violation_async(
+            g,
+            parent_event_id=llm_event_id,
+            label="Trust flag",
+            action=f"tool_call:{tool_name}",
+            reason=(
+                f"Agent received output from low-trust session "
+                f"(score={trust_score:.2f}), attempting {tool_name}"
+            ),
+            payload={"tool_name": tool_name, "trust_score": trust_score},
+            block_in_enforce=False,
+        )
+
+    policy_result = g._policy_engine.check(g.agent_id, tool_name)
+    tool_severity = "info" if policy_result.allowed else "critical"
+    tool_flags = [] if policy_result.allowed else [policy_result.rule_name]
+
+    await g._bus.emit_async(
+        SecurityEvent(
+            session_id=g.session_id,
+            agent_id=g.agent_id,
+            source="sdk",
+            event_type="tool_call" if policy_result.allowed else "policy_violation",
+            severity=tool_severity,
+            payload=make_payload(
+                tool_name=tool_name,
+                tool_input=tool_input,
+                policy_result={
+                    "allowed": policy_result.allowed,
+                    "reason": policy_result.reason,
+                    "rule_name": policy_result.rule_name,
+                },
+            ),
+            flags=tool_flags,
+            parent_event_id=llm_event_id,
+        )
+    )
+
+    # Argument-level constraint check (path traversal, SSRF, etc.)
+    violations = g._policy_engine.check_arguments(g.agent_id, tool_name, tool_input)
+    if violations:
+        violation_flags = [v.flag for v in violations]
+        await g._bus.emit_async(
+            SecurityEvent(
+                session_id=g.session_id,
+                agent_id=g.agent_id,
+                source="sdk",
+                event_type="policy_violation",
+                severity="critical",
+                payload=make_payload(
+                    tool_name=tool_name,
+                    tool_input=tool_input,
+                    violations=[
+                        {
+                            "constraint": v.constraint,
+                            "argument": v.argument,
+                            "value": v.value,
+                            "detail": v.detail,
+                        }
+                        for v in violations
+                    ],
+                ),
+                flags=violation_flags,
+                parent_event_id=llm_event_id,
+            )
+        )
+        logger.error(
+            "[AgentGuard] policy_violation: %s.%s -> CRITICAL\n  argument constraints: %s",
+            g.agent_id,
+            tool_name,
+            [v.detail for v in violations],
+        )
+        await _dispatch_violation_async(
+            g,
+            parent_event_id=llm_event_id,
+            label="Argument constraint violation",
+            action=f"tool_call:{tool_name}",
+            reason=f"Flags: {violation_flags}",
+            payload={
+                "tool_name": tool_name,
+                "tool_input": tool_input,
+                "flags": violation_flags,
+            },
+        )
+
+
 async def _dispatch_violation_async(
     guard: Any,
     *,
@@ -298,17 +451,29 @@ class AsyncGuardedMessages:
         llm_event_id = str(uuid.uuid4())
 
         # --- 1. Injection scan
-        injection_matches = g._injection_detector.scan_messages(scan_corpus)
+        try:
+            injection_matches = g._injection_detector.scan_messages(scan_corpus)
+        except Exception as exc:
+            injection_matches = []
+            await _handle_engine_error_async(
+                g, source="sdk", phase="injection_scan", parent_event_id=llm_event_id, exc=exc
+            )
 
         # --- 2. Tool policy check
         policy_violations: list[str] = []
-        for tool_def in tools:
-            tool_name = tool_def.get("name", "unknown")
-            result = g._policy_engine.check(g.agent_id, tool_name)
-            if not result.allowed:
-                policy_violations.append(
-                    f"{tool_name}: {result.reason} [{result.rule_name}]"
-                )
+        try:
+            for tool_def in tools:
+                tool_name = tool_def.get("name", "unknown")
+                result = g._policy_engine.check(g.agent_id, tool_name)
+                if not result.allowed:
+                    policy_violations.append(
+                        f"{tool_name}: {result.reason} [{result.rule_name}]"
+                    )
+        except Exception as exc:
+            policy_violations = []
+            await _handle_engine_error_async(
+                g, source="sdk", phase="tool_definition_policy_check", parent_event_id=llm_event_id, exc=exc
+            )
 
         # --- 3. Emit llm_call event
         await g._bus.emit_async(
@@ -423,113 +588,17 @@ class AsyncGuardedMessages:
                     tool_name = getattr(block, "name", "unknown")
                     tool_input = getattr(block, "input", {})
 
-                    if g._trust_scorer.should_flag(g.session_id, tool_name):
-                        trust_score = g._trust_scorer.score(g.session_id)
-                        await g._bus.emit_async(
-                            SecurityEvent(
-                                session_id=g.session_id,
-                                agent_id=g.agent_id,
-                                source="sdk",
-                                event_type="trust_flag",
-                                severity="warning",
-                                payload=make_payload(
-                                    tool_name=tool_name,
-                                    trust_score=trust_score,
-                                    reason=(
-                                        f"Agent received output from low-trust session "
-                                        f"(score={trust_score:.2f}), attempting {tool_name}"
-                                    ),
-                                ),
-                                flags=["trust:low_score_sensitive_tool"],
-                                parent_event_id=llm_event_id,
-                                metadata={"trust_score": trust_score},
-                            )
-                        )
-                        # Trust flags are warning-only — never hard-block in enforce mode —
-                        # but interactive mode still routes them through the approval gate.
-                        await _dispatch_violation_async(
+                    try:
+                        await _evaluate_tool_use_async(g, llm_event_id, tool_name, tool_input)
+                    except AgentGuardException:
+                        raise
+                    except Exception as exc:
+                        await _handle_engine_error_async(
                             g,
-                            parent_event_id=llm_event_id,
-                            label="Trust flag",
-                            action=f"tool_call:{tool_name}",
-                            reason=(
-                                f"Agent received output from low-trust session "
-                                f"(score={trust_score:.2f}), attempting {tool_name}"
-                            ),
-                            payload={"tool_name": tool_name, "trust_score": trust_score},
-                            block_in_enforce=False,
-                        )
-
-                    policy_result = g._policy_engine.check(g.agent_id, tool_name)
-                    tool_severity = "info" if policy_result.allowed else "critical"
-                    tool_flags = [] if policy_result.allowed else [policy_result.rule_name]
-
-                    await g._bus.emit_async(
-                        SecurityEvent(
-                            session_id=g.session_id,
-                            agent_id=g.agent_id,
                             source="sdk",
-                            event_type="tool_call" if policy_result.allowed else "policy_violation",
-                            severity=tool_severity,
-                            payload=make_payload(
-                                tool_name=tool_name,
-                                tool_input=tool_input,
-                                policy_result={
-                                    "allowed": policy_result.allowed,
-                                    "reason": policy_result.reason,
-                                    "rule_name": policy_result.rule_name,
-                                },
-                            ),
-                            flags=tool_flags,
+                            phase="post_call_tool_evaluation",
                             parent_event_id=llm_event_id,
-                        )
-                    )
-
-                    # Argument-level constraint check (path traversal, SSRF, etc.)
-                    violations = g._policy_engine.check_arguments(g.agent_id, tool_name, tool_input)
-                    if violations:
-                        violation_flags = [v.flag for v in violations]
-                        await g._bus.emit_async(
-                            SecurityEvent(
-                                session_id=g.session_id,
-                                agent_id=g.agent_id,
-                                source="sdk",
-                                event_type="policy_violation",
-                                severity="critical",
-                                payload=make_payload(
-                                    tool_name=tool_name,
-                                    tool_input=tool_input,
-                                    violations=[
-                                        {
-                                            "constraint": v.constraint,
-                                            "argument": v.argument,
-                                            "value": v.value,
-                                            "detail": v.detail,
-                                        }
-                                        for v in violations
-                                    ],
-                                ),
-                                flags=violation_flags,
-                                parent_event_id=llm_event_id,
-                            )
-                        )
-                        logger.error(
-                            "[AgentGuard] policy_violation: %s.%s -> CRITICAL\n  argument constraints: %s",
-                            g.agent_id,
-                            tool_name,
-                            [v.detail for v in violations],
-                        )
-                        await _dispatch_violation_async(
-                            g,
-                            parent_event_id=llm_event_id,
-                            label="Argument constraint violation",
-                            action=f"tool_call:{tool_name}",
-                            reason=f"Flags: {violation_flags}",
-                            payload={
-                                "tool_name": tool_name,
-                                "tool_input": tool_input,
-                                "flags": violation_flags,
-                            },
+                            exc=exc,
                         )
 
         return response

@@ -16,7 +16,7 @@ import logging
 import os
 import threading
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -316,7 +316,7 @@ class AuditLogger:
         return self.path.exists() and self.path.stat().st_size >= self._rotate_bytes
 
     def _rotate(self) -> None:
-        ts = datetime.utcnow().strftime("%Y%m%dT%H%M%S")
+        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
         rotated = self.path.with_suffix(f".{ts}.jsonl")
         self.path.rename(rotated)
         logger.info("[AuditLogger] Rotated %s -> %s", self.path, rotated)

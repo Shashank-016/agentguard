@@ -10,19 +10,20 @@ Notes
   process. A multi-process deployment needs a shared switch (e.g. Redis-backed,
   see the roadmap's "Multi-process bus" item) for a single trip to halt every
   worker.
-* No authentication is enforced here — this is a placeholder until AgentGuard
-  ships an auth layer. Deploy behind your own auth/network controls in the
-  meantime; an unauthenticated kill switch on the public internet is a denial
-  -of-service vector against your own agents.
+* Protected by ``require_api_key`` (see ``api/main.py``) — set
+  ``AGENTGUARD_API_KEY`` so an unauthenticated kill switch on the public
+  internet can't be used as a denial-of-service vector against your own agents.
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from agentguard.control import get_default_kill_switch
 
-router = APIRouter(prefix="/control", tags=["control"])
+from ..main import require_api_key
+
+router = APIRouter(prefix="/control", tags=["control"], dependencies=[Depends(require_api_key)])
 
 
 @router.post("/kill/{session_id}")

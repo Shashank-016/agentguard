@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
+
+from .redaction import redact
 
 EventType = Literal[
     "llm_call",
@@ -21,6 +23,7 @@ EventType = Literal[
     "approval_required",
     "approval_granted",
     "approval_denied",
+    "engine_error",
 ]
 
 Severity = Literal["info", "warning", "critical"]
@@ -38,7 +41,7 @@ class SecurityEvent(BaseModel):
     event_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     session_id: str
     agent_id: str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     source: Source
     event_type: EventType
     severity: Severity = "info"
@@ -67,5 +70,12 @@ def _truncate(value: Any, max_chars: int = 4000) -> Any:
 
 
 def make_payload(**kwargs: Any) -> dict[str, Any]:
-    """Build a storage-safe payload dict with truncated string values."""
-    return _truncate(kwargs)  # type: ignore[return-value]
+    """Build a storage-safe payload dict: secrets/PII redacted, then truncated.
+
+    Redaction runs first so that masking placeholders (which are short and
+    fixed-length) never get clipped by truncation, and so truncation can't
+    accidentally split a secret in a way that defeats the pattern match.
+    Controlled by :data:`agentguard.redaction.is_redaction_enabled` —
+    see ``AGENTGUARD_REDACT`` in the module docs.
+    """
+    return _truncate(redact(kwargs))  # type: ignore[return-value]

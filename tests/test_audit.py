@@ -1,6 +1,7 @@
 """Tests for AuditLogger — JSONL persistence and GuardedClient integration."""
 
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -33,6 +34,55 @@ class TestAuditLoggerWrite:
         assert data["event_type"] == "llm_call"
         assert data["severity"] == "info"
         assert data["session_id"] == event.session_id
+
+
+# ---------------------------------------------------------------------------
+# Timestamps — tz-aware, ISO round-trip (regression for datetime.utcnow() removal)
+# ---------------------------------------------------------------------------
+
+class TestTimestamps:
+    def test_default_timestamp_is_tz_aware_utc(self):
+        event = _make_event()
+        assert event.timestamp.tzinfo is not None
+        assert event.timestamp.utcoffset() == timedelta(0)
+
+    def test_timestamp_isoformat_includes_utc_offset(self):
+        event = _make_event()
+        iso = event.timestamp.isoformat()
+        assert iso.endswith("+00:00")
+
+    def test_timestamp_isoformat_round_trips(self):
+        event = _make_event()
+        iso = event.timestamp.isoformat()
+        restored = datetime.fromisoformat(iso)
+        assert restored == event.timestamp
+        assert restored.tzinfo is not None
+        assert restored.utcoffset() == timedelta(0)
+
+    def test_audit_log_persists_tz_aware_iso_timestamp(self, tmp_path):
+        path = tmp_path / "audit.jsonl"
+        logger = AuditLogger(path=str(path))
+        event = _make_event()
+        logger.write(event)
+
+        line = path.read_text(encoding="utf-8").strip().splitlines()[0]
+        data = json.loads(line)
+
+        persisted = datetime.fromisoformat(data["timestamp"])
+        assert persisted.tzinfo is not None
+        assert persisted.utcoffset() == timedelta(0)
+        assert persisted == event.timestamp
+
+    def test_explicit_timestamp_round_trips_through_model(self):
+        ts = datetime(2026, 1, 2, 3, 4, 5, 678000, tzinfo=timezone.utc)
+        event = _make_event()
+        event = event.model_copy(update={"timestamp": ts})
+
+        dumped = event.model_dump_json()
+        restored = SecurityEvent.model_validate_json(dumped)
+
+        assert restored.timestamp == ts
+        assert restored.timestamp.tzinfo is not None
 
     def test_appends_multiple_events(self, tmp_path):
         path = tmp_path / "audit.jsonl"

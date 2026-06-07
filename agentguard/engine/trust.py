@@ -12,6 +12,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Optional
 
+from ._state import DEFAULT_MAX_ENTRIES, DEFAULT_TTL_SECONDS, BoundedStateStore
+
 logger = logging.getLogger(__name__)
 
 
@@ -61,16 +63,27 @@ class TrustScorer:
     ----------
     sensitive_threshold:
         Trust score below which a sensitive tool call triggers a flag.
+    max_sessions:
+        Maximum number of sessions to retain. The least-recently-touched
+        session is evicted once this limit is exceeded — bounds memory for
+        long-running proxies that see many distinct sessions.
+    ttl_seconds:
+        Sessions untouched for longer than this are evicted lazily.
     """
 
-    def __init__(self, sensitive_threshold: float = 0.5) -> None:
+    def __init__(
+        self,
+        sensitive_threshold: float = 0.5,
+        max_sessions: int = DEFAULT_MAX_ENTRIES,
+        ttl_seconds: float = DEFAULT_TTL_SECONDS,
+    ) -> None:
         self._threshold = sensitive_threshold
-        self._sessions: dict[str, SessionTrustState] = {}
+        self._sessions: BoundedStateStore[str, SessionTrustState] = BoundedStateStore(
+            max_entries=max_sessions, ttl_seconds=ttl_seconds
+        )
 
     def _get_or_create(self, session_id: str) -> SessionTrustState:
-        if session_id not in self._sessions:
-            self._sessions[session_id] = SessionTrustState()
-        return self._sessions[session_id]
+        return self._sessions.get_or_create(session_id, SessionTrustState)
 
     # ------------------------------------------------------------------
     # Trust-modifying events

@@ -219,6 +219,9 @@ async def _run_stdio(
         await server.run()
     finally:
         await upstream.stop()
+        # Drain the persistence worker so events emitted during this run
+        # reach the store before the process exits — see EventBus.close().
+        await asyncio.to_thread(bus.close)
 
 
 async def _run_sse(
@@ -255,3 +258,6 @@ async def _run_sse(
         await server.run()
     finally:
         await upstream.stop()
+        # Drain the persistence worker so events emitted during this run
+        # reach the store before the process exits — see EventBus.close().
+        await asyncio.to_thread(bus.close)

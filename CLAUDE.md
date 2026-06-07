@@ -98,6 +98,24 @@ Explicit denies always beat explicit allows. If a tool appears in both (misconfi
 **`KillSwitch` is a process-wide singleton by default.**
 `get_default_kill_switch()` returns one shared instance so a single `kill_all()` — whether called programmatically, via the `/control/kill-all` API route, or from a different `GuardedClient`/`MCPInterceptor` — halts every in-process session immediately. Pass an explicit `kill_switch=` to isolate a client from the shared switch (e.g. in tests). Multi-process deployments need a shared backing store (Redis, per the roadmap) for one trip to halt every worker.
 
+**`EventBus` persists durably via a background daemon thread, and must be drained on shutdown.**
+`emit()`/`emit_async()` schedule persistence on a lazily-started worker thread (`_ensure_worker`) that owns its own event loop and writes through `asyncio.run_coroutine_threadsafe`. This keeps emission non-blocking and safe from both sync and async call sites. Because the thread is a daemon, anything emitted just before process exit can be lost unless the bus is drained first — call `bus.flush()` to wait for in-flight persistence (e.g. mid-run, after a burst of events) or `bus.close()` at shutdown (flushes, then stops the loop and joins the thread). `agentguard/cli.py`'s `_run_stdio`/`_run_sse` call `bus.close()` in their `finally` blocks alongside `upstream.stop()`.
+
+**Engine errors fail closed in `enforce`/`interactive` modes, fail open in `observe`.**
+If the security engine itself raises mid-evaluation (regex blowup, malformed policy YAML, embedding model error, etc.), every call path — `GuardedClient`, `AsyncGuardedClient`, `GuardedOpenAI`/`AsyncGuardedOpenAI`, and `MCPInterceptor` — catches it, emits a critical `engine_error` event (flag `engine:internal_error`), and then: in `enforce`/`interactive` mode, blocks the call (raises `AgentGuardException` for SDK clients, returns `allowed=False` with `block_code=AGENTGUARD_ENGINE_ERROR` for the MCP interceptor) rather than letting a broken detector silently wave everything through; in `observe` mode it logs and lets the call proceed, consistent with observe's "never interrupt" contract. Per-call evaluation logic is factored into standalone `_evaluate_*_sync`/`_evaluate_*_async` helpers specifically so the whole evaluation can be wrapped in one `try/except`.
+
+**The audit API's optional `AGENTGUARD_API_KEY` is backward-compatible by design.**
+`require_api_key` (in `api/main.py`, wired as a router-level dependency on `control`/`events`/`sessions`) only enforces a key if `AGENTGUARD_API_KEY` is set — accepting it via `X-API-Key` or `Authorization: Bearer <token>`. If unset, every request is allowed through exactly as before this check existed, but a one-time warning is logged so an operator notices the gap rather than silently running an open API. `/health` is always open (it's a liveness probe, not a security boundary).
+
+**`StdioUpstreamClient` drains the upstream subprocess's stderr continuously.**
+A background `_drain_stderr` task reads `process.stderr` line-by-line and logs each line at `DEBUG`. Without this, stderr output from the wrapped MCP server fills its OS pipe buffer once full, and the subprocess blocks on the next write — silently wedging the whole proxy. The task is created in `start()` and cancelled/awaited in `stop()` alongside the stdout `_read_loop` task; like `_read_loop`, it swallows `asyncio.CancelledError` and finishes normally rather than ending up in the asyncio-"cancelled" state, so tests assert `.done()` + `.exception() is None`, not `.cancelled()`.
+
+**`TrustScorer` and the policy rate limiter bound their in-memory state via a shared `BoundedStateStore`.**
+Both `TrustScorer._sessions` (per-session trust state) and `ToolPolicyEngine`'s `_SlidingWindowCounter._windows` (per agent+tool rate-limit windows) are unbounded dicts that accumulate one entry per session/key for the life of the process — a slow memory leak for long-running deployments with many short-lived sessions. `agentguard/engine/_state.py` provides a generic, thread-safe `BoundedStateStore[K, V]` with combined LRU (`max_entries`, default `10_000`) and TTL (`ttl_seconds`, default `3600`) eviction, exploiting the invariant that `OrderedDict` move-to-end order exactly matches access-time order — so TTL eviction only ever needs to inspect entries at the front until it finds one that hasn't expired (O(1) amortized, no full-dict scans). Both `TrustScorer` and `ToolPolicyEngine` accept `max_*`/`*_ttl_seconds` constructor overrides that pass through to the store.
+
+**Event payloads are redacted before being persisted, on by default.**
+`agentguard/redaction.py`'s `redact()` walks `make_payload`'s kwargs (recursing through dicts/lists/tuples) and replaces recognizable secrets/PII — OpenAI/AWS/GitHub keys, JWTs, PEM private-key blocks, email addresses — with `«REDACTED:<kind>»` placeholders, *before* `_truncate` runs (so a placeholder is never clipped and a secret can't dodge the pattern by being split across the truncation boundary). Disable it via `AGENTGUARD_REDACT=0/false/no/off` (e.g. for local debugging where you want to see raw payloads) or override programmatically with `set_redaction_enabled(True/False/None)` — the latter takes precedence over the env var and is mainly for tests/embedders. Note `redact_text()` (the raw pattern-substitution primitive) always redacts regardless of the toggle; only `redact()` — and therefore `make_payload` — checks `is_redaction_enabled()`.
+
 ## What's Not Built Yet
 
 - OpenTelemetry span export
@@ -109,8 +127,9 @@ Explicit denies always beat explicit allows. If a tool appears in both (misconfi
 ## Module Map
 
 ```
-agentguard/events.py          -> SecurityEvent Pydantic model + make_payload()
-agentguard/bus.py             -> EventBus (sync + async emit, subscribers)
+agentguard/events.py          -> SecurityEvent Pydantic model + make_payload() (redacts, then truncates)
+agentguard/redaction.py       -> Secret/PII redaction (redact/redact_text, AGENTGUARD_REDACT toggle)
+agentguard/bus.py             -> EventBus (sync + async emit, subscribers, background persistence worker, flush()/close())
 agentguard/store.py           -> SQLAlchemy async store (SQLite/Postgres)
 agentguard/audit.py           -> AuditLogger (hash-chained tamper-evident JSONL append, rotation, search, verify)
 agentguard/control.py         -> ApprovalGate + KillSwitch (interactive mode, human-in-the-loop, kill switch)
@@ -124,6 +143,7 @@ agentguard/engine/
   policy.py                  -> ToolPolicyEngine (YAML rules, rate limiting, argument constraints)
   constraints.py             -> ArgumentConstraintChecker (path traversal, SSRF, shell metachars, sensitive paths)
   trust.py                   -> TrustScorer (provenance tracking)
+  _state.py                  -> BoundedStateStore (thread-safe TTL+LRU eviction, shared by trust.py/policy.py)
 agentguard/mcp/
   models.py                  -> MCPRequest/MCPResponse Pydantic models + error codes
   interceptor.py             -> MCPInterceptor (security checks on MCP tool calls)

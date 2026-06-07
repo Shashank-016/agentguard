@@ -7,9 +7,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from agentguard.events import SecurityEvent
 from agentguard.store import EventStore
 
-from ..main import get_store
+from ..main import get_store, require_api_key
 
-router = APIRouter(prefix="/sessions", tags=["sessions"])
+router = APIRouter(prefix="/sessions", tags=["sessions"], dependencies=[Depends(require_api_key)])
 
 
 @router.get("")

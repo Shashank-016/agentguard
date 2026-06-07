@@ -7,7 +7,7 @@ import os
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from agentguard.store import EventStore
@@ -26,6 +26,60 @@ def get_store() -> EventStore:
     if _store is None:
         raise RuntimeError("Store not initialised — lifespan not running")
     return _store
+
+
+# ---------------------------------------------------------------------------
+# API key authentication
+# ---------------------------------------------------------------------------
+#
+# Set AGENTGUARD_API_KEY to require callers to present it via the
+# `X-API-Key` header or `Authorization: Bearer <key>`. If the env var is
+# unset, the API stays open — same as before this check existed — but logs a
+# warning on every request so an operator notices the gap. This keeps the
+# change backward-compatible for existing deployments while making the
+# unauthenticated state loud rather than silent.
+
+_WARNED_NO_API_KEY = False
+
+
+def _configured_api_key() -> str | None:
+    return os.getenv("AGENTGUARD_API_KEY") or None
+
+
+async def require_api_key(
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    authorization: str | None = Header(default=None),
+) -> None:
+    """FastAPI dependency enforcing the optional ``AGENTGUARD_API_KEY``.
+
+    Accepts the key via ``X-API-Key: <key>`` or ``Authorization: Bearer <key>``.
+    Raises 401 on a missing/incorrect key. If no key is configured, requests
+    are allowed through (with a one-time warning) for backward compatibility.
+    """
+    global _WARNED_NO_API_KEY
+    expected = _configured_api_key()
+    if expected is None:
+        if not _WARNED_NO_API_KEY:
+            logger.warning(
+                "AGENTGUARD_API_KEY is not set — the audit API is running without "
+                "authentication. Set AGENTGUARD_API_KEY to require callers to "
+                "authenticate via the X-API-Key or Authorization header."
+            )
+            _WARNED_NO_API_KEY = True
+        return
+
+    presented = x_api_key
+    if presented is None and authorization is not None:
+        scheme, _, token = authorization.partition(" ")
+        if scheme.lower() == "bearer" and token:
+            presented = token
+
+    if presented is None or presented != expected:
+        raise HTTPException(
+            status_code=401,
+            detail="Missing or invalid API key. Provide it via the X-API-Key "
+            "header or 'Authorization: Bearer <key>'.",
+        )
 
 
 # ---------------------------------------------------------------------------

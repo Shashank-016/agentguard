@@ -66,7 +66,9 @@ def load_font(size: int = FONT_SIZE) -> ImageFont.FreeTypeFont:
         return ImageFont.load_default()
 
 
-def clip_to_width(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont, max_width: int) -> str:
+def clip_to_width(
+    draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont, max_width: int
+) -> str:
     if draw.textlength(text, font=font) <= max_width:
         return text
     while text and draw.textlength(text + "…", font=font) > max_width:
@@ -82,10 +84,17 @@ def draw_title_bar(draw: ImageDraw.ImageDraw, font: ImageFont.FreeTypeFont) -> N
         draw.ellipse([(cx - 6, cy - 6), (cx + 6, cy + 6)], fill=color)
     label = "agentguard mcp proxy demo"
     text_width = draw.textlength(label, font=font)
-    draw.text(((WIDTH - text_width) / 2, (TITLE_BAR_HEIGHT - FONT_SIZE) / 2 - 1), label, font=font, fill=COLORS["grey"])
+    draw.text(
+        ((WIDTH - text_width) / 2, (TITLE_BAR_HEIGHT - FONT_SIZE) / 2 - 1),
+        label,
+        font=font,
+        fill=COLORS["grey"],
+    )
 
 
-def render_frame(lines: list[str], reveal_count: int, font: ImageFont.FreeTypeFont, height: int) -> Image.Image:
+def render_frame(
+    lines: list[str], reveal_count: int, font: ImageFont.FreeTypeFont, height: int
+) -> Image.Image:
     image = Image.new("RGB", (WIDTH, height), BG)
     draw = ImageDraw.Draw(image)
     draw_title_bar(draw, font)

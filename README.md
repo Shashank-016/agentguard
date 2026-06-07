@@ -11,7 +11,6 @@ OpenAI SDKs, LangGraph, and any MCP server. Drop it in with a one-line change; n
 agent logic.
 
 ![AgentGuard blocking a prompt-injection attack at the tool layer](docs/demo.gif)
-<!-- The demo GIF is added in the next task at docs/demo.gif; this comment marks the insertion point. -->
 
 ## Why
 
@@ -47,7 +46,7 @@ client = GuardedClient(
 # Use it exactly as before. AgentGuard scans inputs, checks tool calls,
 # logs every event, and (in enforce mode) blocks dangerous actions.
 resp = client.messages.create(
-    model="claude-sonnet-4-5",
+    model="claude-haiku-4-5-20251001",
     max_tokens=512,
     messages=[{"role": "user", "content": "Summarize this document..."}],
 )

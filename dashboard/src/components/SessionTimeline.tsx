@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { apiFetch } from "../api";
 
 interface Session {
   session_id: string;
@@ -43,7 +44,7 @@ export function SessionTimeline() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    fetch("/sessions")
+    apiFetch("/sessions")
       .then((r) => r.json())
       .then((data) => {
         setSessions(data);
@@ -57,7 +58,7 @@ export function SessionTimeline() {
   useEffect(() => {
     if (!selectedId) return;
     setLoading(true);
-    fetch(`/sessions/${selectedId}`)
+    apiFetch(`/sessions/${selectedId}`)
       .then((r) => r.json())
       .then((data) => {
         setEvents(Array.isArray(data) ? data : []);

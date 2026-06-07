@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { apiFetch } from "../api";
 
 interface SecurityEvent {
   event_id: string;
@@ -85,7 +86,7 @@ export function EventFeed() {
 
     async function fetchEvents() {
       try {
-        const res = await fetch("/events?limit=100");
+        const res = await apiFetch("/events?limit=100");
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         if (!cancelled) setEvents(data);

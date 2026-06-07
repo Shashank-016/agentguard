@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { apiFetch } from "./api";
 import { EventFeed } from "./components/EventFeed";
 import { SessionTimeline } from "./components/SessionTimeline";
 import { AlertBadge } from "./components/AlertBadge";
@@ -37,7 +38,7 @@ function AlertsPanel() {
     let cancelled = false;
     const load = async () => {
       try {
-        const res = await fetch("/events/alerts");
+        const res = await apiFetch("/events/alerts");
         if (res.ok && !cancelled) setAlerts(await res.json());
       } catch (_) {}
     };
@@ -105,8 +106,8 @@ export default function App() {
     const load = async () => {
       try {
         const [healthRes, alertRes] = await Promise.all([
-          fetch("/health"),
-          fetch("/events/alerts?limit=200"),
+          apiFetch("/health"),
+          apiFetch("/events/alerts?limit=200"),
         ]);
         if (healthRes.ok) {
           const h = await healthRes.json();

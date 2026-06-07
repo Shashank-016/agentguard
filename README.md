@@ -1,224 +1,106 @@
 # AgentGuard
 
-**Real-time security observability for AI agents — detect prompt injection, tool policy violations, and trust degradation before they become incidents.**
+[![CI](https://github.com/Shashank-016/agentguard/actions/workflows/ci.yml/badge.svg)](https://github.com/Shashank-016/agentguard/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
+[![MCP](https://img.shields.io/badge/MCP-compatible-6e56cf.svg)](https://modelcontextprotocol.io/)
 
----
+**A security layer for AI agents.** AgentGuard detects prompt injection, firewalls dangerous tool
+calls, scores cross-agent trust, and keeps a tamper-evident audit trail — across the Anthropic &
+OpenAI SDKs, LangGraph, and any MCP server. Drop it in with a one-line change; no rewrite of your
+agent logic.
 
-## The Problem
+<!-- DEMO_GIF -->
+<!-- The demo GIF is added in the next task at docs/demo.gif; this comment marks the insertion point. -->
 
-49% of organizations deploying AI agents have no visibility into what those agents actually do at runtime. An agent that reads a malicious document, gets injected with rogue instructions, and then calls `write_file` or `send_email` on behalf of an attacker is indistinguishable from normal operation — unless you're watching.
+## Why
 
-AgentGuard is the missing security layer. It instruments your agents at the SDK and framework level, detecting threats in real-time and surfacing them through an audit API and dashboard — without requiring you to change how your agents work.
+Autonomous agents take actions — they read documents, call tools, write files, hit APIs. That
+turns a prompt-injection string in a web page or a tool result into a way to *make the agent do
+something*, not just say something. Most teams have no visibility into what their agents are
+doing and no enforcement layer between the model's decision and the action. AgentGuard is that
+layer.
 
----
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         Your Agent Code                         │
-│                                                                 │
-│   GuardedClient.messages.create(...)                            │
-│   AgentGuardCallback attached to LangGraph graph                │
-└────────────────┬────────────────────────────────────────────────┘
-                 │ intercepts
-                 ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                       AgentGuard Core                           │
-│                                                                 │
-│  ┌─────────────────┐  ┌──────────────────┐  ┌───────────────┐  │
-│  │ InjectionDetect │  │ ToolPolicyEngine  │  │  TrustScorer  │  │
-│  │  regex + embed  │  │  YAML rules       │  │  provenance   │  │
-│  └────────┬────────┘  └────────┬─────────┘  └───────┬───────┘  │
-│           └───────────────────┬┘                    │           │
-│                               ▼                     │           │
-│                         EventBus ◄──────────────────┘           │
-│                               │                                 │
-│                               ▼                                 │
-│                         EventStore (SQLite / Postgres)          │
-└──────────────────────────┬──────────────────────────────────────┘
-                           │
-              ┌────────────┴────────────┐
-              ▼                         ▼
-     FastAPI Audit API           React Dashboard
-     GET /events                 Live feed
-     GET /sessions               Session timeline
-     GET /alerts                 Alerts panel
-```
-
----
-
-## Quick Start
+## Install
 
 ```bash
-pip install agentguard
+git clone https://github.com/Shashank-016/agentguard
+cd agentguard
+pip install -e ".[langgraph,openai]"   # extras optional; base install works on its own
 ```
+<!-- Note: a PyPI release is planned; until then, install from source as above. -->
 
-### Drop-in SDK wrapper
+## Quick start (30 seconds)
 
 ```python
 import anthropic
 from agentguard import GuardedClient
 
-# Exact same interface as anthropic.Anthropic()
+# Wrap your existing client — same interface as anthropic.Anthropic()
 client = GuardedClient(
     anthropic.Anthropic(),
     agent_id="researcher",
     policy_path="policy.yaml",   # optional
-    mode="observe",              # "enforce" to block violations
+    mode="observe",              # "observe" | "enforce" | "interactive"
 )
 
-# Use exactly as before — nothing else changes
-response = client.messages.create(
-    model="claude-opus-4-7",
-    max_tokens=1024,
-    messages=[{"role": "user", "content": user_input}],
+# Use it exactly as before. AgentGuard scans inputs, checks tool calls,
+# logs every event, and (in enforce mode) blocks dangerous actions.
+resp = client.messages.create(
+    model="claude-sonnet-4-5",
+    max_tokens=512,
+    messages=[{"role": "user", "content": "Summarize this document..."}],
 )
 ```
 
-### Async usage
-
-```python
-import anthropic
-from agentguard import AsyncGuardedClient
-
-# Drop-in replacement for anthropic.AsyncAnthropic()
-client = AsyncGuardedClient(
-    anthropic.AsyncAnthropic(),
-    agent_id="researcher",
-    mode="observe",
-)
-
-# Use exactly as before — same interface, full async
-response = await client.messages.create(
-    model="claude-haiku-4-5-20251001",
-    max_tokens=1024,
-    messages=[{"role": "user", "content": user_input}],
-)
-
-# Streaming also supported
-async with client.messages.stream(model=..., messages=...) as stream:
-    async for text in stream.text_stream:
-        print(text, end="", flush=True)
-```
-
-`AsyncGuardedClient` intercepts all `messages.create()` and `messages.stream()` calls,
-scanning for injection, enforcing policy, and tracking trust — all without blocking the
-event loop. Every attribute not explicitly intercepted (`beta`, `models`, etc.) is
-transparently proxied to the underlying `AsyncAnthropic` instance.
-
-### OpenAI SDK wrapper
+See it catch a real attack:
 
 ```bash
-pip install "agentguard[openai]"
+python examples/mcp_proxy_demo.py
+# An agent reads a poisoned document and tries a privileged write —
+# AgentGuard blocks it at the tool layer and prints a session report.
 ```
 
+## Add AgentGuard to your own agent
+
+One line at the point you create your client or graph. Everything downstream is instrumented.
+
+**Anthropic SDK**
 ```python
-import openai
+from anthropic import Anthropic
+from agentguard import GuardedClient
+
+client = GuardedClient(Anthropic(), agent_id="my-agent", policy_path="policy.yaml", mode="enforce")
+```
+
+**OpenAI SDK**
+```python
+from openai import OpenAI
 from agentguard import GuardedOpenAI
 
-# Exact same interface as openai.OpenAI()
-client = GuardedOpenAI(
-    openai.OpenAI(),
-    agent_id="researcher",
-    policy_path="policy.yaml",   # optional
-    mode="observe",              # "enforce" / "interactive" also supported
-)
-
-# Use exactly as before — nothing else changes
-response = client.chat.completions.create(
-    model="gpt-4o",
-    messages=[{"role": "user", "content": user_input}],
-    tools=[{"type": "function", "function": {"name": "read_file", "parameters": {...}}}],
-)
+client = GuardedOpenAI(OpenAI(), agent_id="my-agent", policy_path="policy.yaml", mode="enforce")
 ```
 
-`AsyncGuardedOpenAI` mirrors `AsyncGuardedClient` for `openai.AsyncOpenAI()`:
-
-```python
-import openai
-from agentguard import AsyncGuardedOpenAI
-
-client = AsyncGuardedOpenAI(openai.AsyncOpenAI(), agent_id="researcher")
-
-response = await client.chat.completions.create(
-    model="gpt-4o",
-    messages=[{"role": "user", "content": user_input}],
-)
-```
-
-Both wrappers run the exact same injection → policy → trust → argument-constraint
-pipeline as the Anthropic clients (same event types, same `mode` semantics, same
-`KillSwitch`/`ApprovalGate` integration), adapted to the Chat Completions
-request/response shapes — including parsing `tool_calls[i].function.arguments`
-(a JSON string) before constraint checking. Streaming is not yet intercepted;
-`chat.completions` is proxied via `__getattr__` for anything beyond `.create()`.
-
-### MCP Proxy
-
-AgentGuard can run as a **transparent MCP proxy** — sitting between your agent and any
-MCP server, validating every tool call without requiring changes to your agent code.
-
-#### Stdio proxy (wrap any MCP CLI server)
-
-In your MCP client config, replace the upstream command with AgentGuard:
-
-```json
-{
-  "mcpServers": {
-    "filesystem": {
-      "command": "agentguard",
-      "args": [
-        "mcp", "proxy", "stdio",
-        "--upstream-cmd", "npx -y @modelcontextprotocol/server-filesystem /tmp",
-        "--agent-id", "my-agent",
-        "--policy", "policy.yaml",
-        "--mode", "enforce"
-      ]
-    }
-  }
-}
-```
-
-#### HTTP/SSE proxy (wrap any remote MCP server)
-
-```bash
-agentguard mcp proxy sse \
-    --upstream-url http://mcp-server:3000 \
-    --port 8899 \
-    --agent-id my-agent \
-    --mode enforce
-```
-
-Then point your agent at `http://localhost:8899` instead of the real server.
-
-#### What the proxy checks
-
-Every `tools/call` request is evaluated against:
-- **Injection detector** — scans tool arguments for injected instructions
-- **Tool policy** — validates the tool name against your `policy.yaml` allow/deny lists
-- **Trust scorer** — flags sensitive tool calls in low-trust sessions
-
-All other MCP methods (`tools/list`, `resources/read`, etc.) are logged and forwarded
-without blocking.
-
-### LangGraph callback
-
+**LangGraph** — attach the callback to any graph/runnable:
 ```python
 from agentguard import AgentGuardCallback
 
-callback = AgentGuardCallback(
-    session_id="run-001",
-    agent_id="researcher",
-    policy_path="policy.yaml",
-)
-
-# Attach to any LangGraph / LangChain runnable
-result = graph.invoke(state, config={"callbacks": [callback]})
-
-# Print a security report at the end
-print(callback.session_report())
+graph.invoke(state, config={"callbacks": [AgentGuardCallback(session_id="run-1")]})
 ```
+
+**Any MCP tool server** — run AgentGuard as a transparent proxy, no agent code change at all.
+Point your MCP client at AgentGuard instead of the real server:
+```bash
+agentguard mcp proxy stdio \
+  --upstream-cmd "npx -y @modelcontextprotocol/server-filesystem /data" \
+  --agent-id my-agent \
+  --policy policy.yaml \
+  --mode enforce
+```
+
+Async variants (`AsyncGuardedClient`, `AsyncGuardedOpenAI`) and streaming are supported with the
+same interface. Events flow to an in-memory bus, an optional SQLite store, and a hash-chained
+JSONL audit log; view them via the bundled FastAPI service and React dashboard (see below).
 
 ---
 
@@ -417,6 +299,9 @@ npm run dev
 # 4. Run the demo
 python examples/langgraph_demo.py
 ```
+
+See [`dashboard/README.md`](dashboard/README.md) for dashboard-specific setup, including how to
+authenticate against an API started with `AGENTGUARD_API_KEY` set.
 
 ---
 

@@ -23,11 +23,19 @@ layer.
 ## Install
 
 ```bash
+pip install agentmoat
+
+# with extras
+pip install "agentmoat[langgraph,openai]"
+```
+
+For development (editable install from source):
+
+```bash
 git clone https://github.com/Shashank-016/agentmoat
 cd agentmoat
 pip install -e ".[langgraph,openai]"   # extras optional; base install works on its own
 ```
-<!-- Note: a PyPI release is planned; until then, install from source as above. -->
 
 ## Quick start (30 seconds)
 

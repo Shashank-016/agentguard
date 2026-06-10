@@ -19,12 +19,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agentguard.async_client import AsyncGuardedClient
-from agentguard.bus import EventBus
-from agentguard.client import AgentGuardException, GuardedClient
-from agentguard.mcp.interceptor import MCPInterceptor
-from agentguard.mcp.models import AGENTGUARD_ENGINE_ERROR, MCPRequest
-from agentguard.openai_client import GuardedOpenAI
+from agentmoat.async_client import AsyncGuardedClient
+from agentmoat.bus import EventBus
+from agentmoat.client import AgentMoatException, GuardedClient
+from agentmoat.mcp.interceptor import MCPInterceptor
+from agentmoat.mcp.models import AGENTMOAT_ENGINE_ERROR, MCPRequest
+from agentmoat.openai_client import GuardedOpenAI
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -114,7 +114,7 @@ class TestSyncGuardedClientFailClosed:
         with patch.object(
             gc._injection_detector, "scan_messages", side_effect=RuntimeError("scan boom")
         ):
-            with pytest.raises(AgentGuardException):
+            with pytest.raises(AgentMoatException):
                 gc.messages.create(model="m", max_tokens=10, messages=SIMPLE_MESSAGES)
 
         errors = _engine_errors(bus, "fc-sync-1")
@@ -146,7 +146,7 @@ class TestSyncGuardedClientFailClosed:
         gc = GuardedClient(client, session_id="fc-sync-3", bus=bus, mode="enforce")
 
         with patch.object(gc._trust_scorer, "should_flag", side_effect=RuntimeError("trust boom")):
-            with pytest.raises(AgentGuardException):
+            with pytest.raises(AgentMoatException):
                 gc.messages.create(model="m", max_tokens=10, messages=SIMPLE_MESSAGES)
 
         errors = _engine_errors(bus, "fc-sync-3")
@@ -182,7 +182,7 @@ class TestAsyncGuardedClientFailClosed:
             with patch.object(
                 gc._injection_detector, "scan_messages", side_effect=RuntimeError("scan boom")
             ):
-                with pytest.raises(AgentGuardException):
+                with pytest.raises(AgentMoatException):
                     await gc.messages.create(model="m", max_tokens=10, messages=SIMPLE_MESSAGES)
 
         asyncio.run(run())
@@ -226,7 +226,7 @@ class TestGuardedOpenAIFailClosed:
         with patch.object(
             gc._injection_detector, "scan_messages", side_effect=RuntimeError("scan boom")
         ):
-            with pytest.raises(AgentGuardException):
+            with pytest.raises(AgentMoatException):
                 gc.chat.completions.create(model="m", messages=SIMPLE_MESSAGES)
 
         errors = _engine_errors(bus, "fc-openai-1")
@@ -242,7 +242,7 @@ class TestGuardedOpenAIFailClosed:
         with patch.object(
             gc._policy_engine, "check_arguments", side_effect=RuntimeError("policy boom")
         ):
-            with pytest.raises(AgentGuardException):
+            with pytest.raises(AgentMoatException):
                 gc.chat.completions.create(model="m", messages=SIMPLE_MESSAGES)
 
         errors = _engine_errors(bus, "fc-openai-2")
@@ -293,7 +293,7 @@ class TestMCPInterceptorFailClosed:
             result = interceptor.intercept(_tools_call_request())
 
         assert result.allowed is False
-        assert result.block_code == AGENTGUARD_ENGINE_ERROR
+        assert result.block_code == AGENTMOAT_ENGINE_ERROR
         assert "Internal security engine error" in result.block_reason
 
         engine_errors = [e for e in result.events if e.event_type == "engine_error"]
@@ -311,7 +311,7 @@ class TestMCPInterceptorFailClosed:
             result = interceptor.intercept(_tools_call_request())
 
         assert result.allowed is False
-        assert result.block_code == AGENTGUARD_ENGINE_ERROR
+        assert result.block_code == AGENTMOAT_ENGINE_ERROR
         assert any(e.event_type == "engine_error" for e in result.events)
 
     def test_observe_mode_fails_open_but_emits_engine_error(self):
@@ -341,5 +341,5 @@ class TestMCPInterceptorFailClosed:
         result = interceptor.intercept(bad_request)
 
         assert result.allowed is False
-        assert result.block_code == AGENTGUARD_ENGINE_ERROR
+        assert result.block_code == AGENTMOAT_ENGINE_ERROR
         assert any(e.event_type == "engine_error" for e in result.events)

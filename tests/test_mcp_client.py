@@ -9,8 +9,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from agentguard.mcp.client import SSEUpstreamClient, StdioUpstreamClient
-from agentguard.mcp.models import INTERNAL_ERROR, MCPRequest
+from agentmoat.mcp.client import SSEUpstreamClient, StdioUpstreamClient
+from agentmoat.mcp.models import INTERNAL_ERROR, MCPRequest
 
 
 # ---------------------------------------------------------------------------
@@ -107,7 +107,7 @@ class TestStdioSend:
             await client.start()
             try:
                 with patch(
-                    "agentguard.mcp.client.asyncio.wait_for",
+                    "agentmoat.mcp.client.asyncio.wait_for",
                     side_effect=asyncio.TimeoutError,
                 ):
                     response = await client.send(
@@ -134,7 +134,7 @@ class TestStdioReadLoop:
 
     @pytest.mark.asyncio
     async def test_read_loop_skips_empty_and_malformed_lines(self, caplog):
-        caplog.set_level(logging.DEBUG, logger="agentguard.mcp.client")
+        caplog.set_level(logging.DEBUG, logger="agentmoat.mcp.client")
         process = _fake_process(
             stdout_lines=[
                 b"\n",
@@ -155,7 +155,7 @@ class TestStdioReadLoop:
 
     @pytest.mark.asyncio
     async def test_read_loop_logs_exception_and_resolves_pending_futures(self, caplog):
-        caplog.set_level(logging.ERROR, logger="agentguard.mcp.client")
+        caplog.set_level(logging.ERROR, logger="agentmoat.mcp.client")
         process = _fake_process(stdout=_RaisingStream())
         with patch("asyncio.create_subprocess_exec", new=AsyncMock(return_value=process)):
             client = StdioUpstreamClient(command=["fake-server"])
@@ -183,7 +183,7 @@ class TestStdioReadLoop:
 class TestStdioDrainStderr:
     @pytest.mark.asyncio
     async def test_drain_stderr_logs_exception_on_unexpected_error(self, caplog):
-        caplog.set_level(logging.ERROR, logger="agentguard.mcp.client")
+        caplog.set_level(logging.ERROR, logger="agentmoat.mcp.client")
         process = _fake_process(stderr=_RaisingStream())
         with patch("asyncio.create_subprocess_exec", new=AsyncMock(return_value=process)):
             client = StdioUpstreamClient(command=["fake-server"])

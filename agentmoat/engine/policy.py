@@ -91,7 +91,7 @@ class _AgentPolicy:
 class _SlidingWindowCounter:
     """Tracks call counts in a sliding time window per (agent_id, tool_name).
 
-    Bounded by :class:`~agentguard.engine._state.BoundedStateStore` (TTL +
+    Bounded by :class:`~agentmoat.engine._state.BoundedStateStore` (TTL +
     LRU eviction) so a long-running proxy serving many distinct agents/tools
     doesn't accumulate one deque per pair forever.
     """

@@ -14,7 +14,7 @@ from .events import SecurityEvent
 
 logger = logging.getLogger(__name__)
 
-_WORKER_THREAD_NAME = "agentguard-persist"
+_WORKER_THREAD_NAME = "agentmoat-persist"
 
 
 class EventBus:
@@ -111,7 +111,7 @@ class EventBus:
                 return
             exc = fut.exception()
             if exc is not None:
-                logger.error("[AgentGuard] Failed to persist event %s: %s", event.event_id, exc)
+                logger.error("[AgentMoat] Failed to persist event %s: %s", event.event_id, exc)
 
         future.add_done_callback(_on_done)
 
@@ -131,7 +131,7 @@ class EventBus:
             try:
                 future.result(timeout=remaining)
             except Exception:
-                logger.exception("[AgentGuard] Error while flushing persistence future")
+                logger.exception("[AgentMoat] Error while flushing persistence future")
 
     def close(self, timeout: float = 5.0) -> None:
         """Drain pending persistence work and stop the worker loop and thread.
@@ -168,7 +168,7 @@ class EventBus:
         """
         self._buffer.append(event)
         logger.debug(
-            "[AgentGuard] %s: %s → %s  flags=%s",
+            "[AgentMoat] %s: %s → %s  flags=%s",
             event.event_type,
             event.agent_id,
             event.severity.upper(),
@@ -193,7 +193,7 @@ class EventBus:
         """
         self._buffer.append(event)
         logger.debug(
-            "[AgentGuard] %s: %s → %s  flags=%s",
+            "[AgentMoat] %s: %s → %s  flags=%s",
             event.event_type,
             event.agent_id,
             event.severity.upper(),

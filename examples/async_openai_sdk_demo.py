@@ -10,9 +10,9 @@ import asyncio
 
 import openai
 
-from agentguard import AsyncGuardedOpenAI
-from agentguard.bus import EventBus
-from agentguard.store import EventStore
+from agentmoat import AsyncGuardedOpenAI
+from agentmoat.bus import EventBus
+from agentmoat.store import EventStore
 
 
 async def main() -> None:

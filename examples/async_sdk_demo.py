@@ -10,9 +10,9 @@ import asyncio
 
 import anthropic
 
-from agentguard import AsyncGuardedClient
-from agentguard.bus import EventBus
-from agentguard.store import EventStore
+from agentmoat import AsyncGuardedClient
+from agentmoat.bus import EventBus
+from agentmoat.store import EventStore
 
 
 async def main() -> None:

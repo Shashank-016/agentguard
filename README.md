@@ -1,30 +1,30 @@
-# AgentGuard
+# AgentMoat
 
-[![CI](https://github.com/Shashank-016/agentguard/actions/workflows/ci.yml/badge.svg)](https://github.com/Shashank-016/agentguard/actions/workflows/ci.yml)
+[![CI](https://github.com/Shashank-016/agentmoat/actions/workflows/ci.yml/badge.svg)](https://github.com/Shashank-016/agentmoat/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![MCP](https://img.shields.io/badge/MCP-compatible-6e56cf.svg)](https://modelcontextprotocol.io/)
 
-**A security layer for AI agents.** AgentGuard detects prompt injection, firewalls dangerous tool
+**A security layer for AI agents.** AgentMoat detects prompt injection, firewalls dangerous tool
 calls, scores cross-agent trust, and keeps a tamper-evident audit trail — across the Anthropic &
 OpenAI SDKs, LangGraph, and any MCP server. Drop it in with a one-line change; no rewrite of your
 agent logic.
 
-![AgentGuard blocking a prompt-injection attack at the tool layer](docs/demo.gif)
+![AgentMoat blocking a prompt-injection attack at the tool layer](docs/demo.gif)
 
 ## Why
 
 Autonomous agents take actions — they read documents, call tools, write files, hit APIs. That
 turns a prompt-injection string in a web page or a tool result into a way to *make the agent do
 something*, not just say something. Most teams have no visibility into what their agents are
-doing and no enforcement layer between the model's decision and the action. AgentGuard is that
+doing and no enforcement layer between the model's decision and the action. AgentMoat is that
 layer.
 
 ## Install
 
 ```bash
-git clone https://github.com/Shashank-016/agentguard
-cd agentguard
+git clone https://github.com/Shashank-016/agentmoat
+cd agentmoat
 pip install -e ".[langgraph,openai]"   # extras optional; base install works on its own
 ```
 <!-- Note: a PyPI release is planned; until then, install from source as above. -->
@@ -33,7 +33,7 @@ pip install -e ".[langgraph,openai]"   # extras optional; base install works on 
 
 ```python
 import anthropic
-from agentguard import GuardedClient
+from agentmoat import GuardedClient
 
 # Wrap your existing client — same interface as anthropic.Anthropic()
 client = GuardedClient(
@@ -43,7 +43,7 @@ client = GuardedClient(
     mode="observe",              # "observe" | "enforce" | "interactive"
 )
 
-# Use it exactly as before. AgentGuard scans inputs, checks tool calls,
+# Use it exactly as before. AgentMoat scans inputs, checks tool calls,
 # logs every event, and (in enforce mode) blocks dangerous actions.
 resp = client.messages.create(
     model="claude-haiku-4-5-20251001",
@@ -57,17 +57,17 @@ See it catch a real attack:
 ```bash
 python examples/mcp_proxy_demo.py
 # An agent reads a poisoned document and tries a privileged write —
-# AgentGuard blocks it at the tool layer and prints a session report.
+# AgentMoat blocks it at the tool layer and prints a session report.
 ```
 
-## Add AgentGuard to your own agent
+## Add AgentMoat to your own agent
 
 One line at the point you create your client or graph. Everything downstream is instrumented.
 
 **Anthropic SDK**
 ```python
 from anthropic import Anthropic
-from agentguard import GuardedClient
+from agentmoat import GuardedClient
 
 client = GuardedClient(Anthropic(), agent_id="my-agent", policy_path="policy.yaml", mode="enforce")
 ```
@@ -75,22 +75,22 @@ client = GuardedClient(Anthropic(), agent_id="my-agent", policy_path="policy.yam
 **OpenAI SDK**
 ```python
 from openai import OpenAI
-from agentguard import GuardedOpenAI
+from agentmoat import GuardedOpenAI
 
 client = GuardedOpenAI(OpenAI(), agent_id="my-agent", policy_path="policy.yaml", mode="enforce")
 ```
 
 **LangGraph** — attach the callback to any graph/runnable:
 ```python
-from agentguard import AgentGuardCallback
+from agentmoat import AgentMoatCallback
 
-graph.invoke(state, config={"callbacks": [AgentGuardCallback(session_id="run-1")]})
+graph.invoke(state, config={"callbacks": [AgentMoatCallback(session_id="run-1")]})
 ```
 
-**Any MCP tool server** — run AgentGuard as a transparent proxy, no agent code change at all.
-Point your MCP client at AgentGuard instead of the real server:
+**Any MCP tool server** — run AgentMoat as a transparent proxy, no agent code change at all.
+Point your MCP client at AgentMoat instead of the real server:
 ```bash
-agentguard mcp proxy stdio \
+agentmoat mcp proxy stdio \
   --upstream-cmd "npx -y @modelcontextprotocol/server-filesystem /data" \
   --agent-id my-agent \
   --policy policy.yaml \
@@ -149,7 +149,7 @@ Built-in detectors run on every tool call regardless of configuration:
 | Sensitive path access | `constraint:sensitive_path` | `/etc/`, `/root/`, `~/.ssh`, `id_rsa`, `.env`, `credentials`, `/proc/` |
 
 Violations are emitted as `policy_violation` events with `severity="critical"` and raise
-`AgentGuardException` in `enforce` mode — both from the SDK wrappers (checked against the
+`AgentMoatException` in `enforce` mode — both from the SDK wrappers (checked against the
 arguments the model produced, before the agent runtime executes the tool) and from the MCP
 proxy (checked before the call is forwarded upstream, where blocking actually prevents execution).
 
@@ -178,7 +178,7 @@ Every guarded client, callback, and the MCP proxy take a `mode`:
 | Mode | Behavior |
 |------|----------|
 | `"observe"` (default) | Detect and log everything — never interrupts the agent. |
-| `"enforce"` | Raise `AgentGuardException` (or return a JSON-RPC error from the MCP proxy) on any hard violation. A fixed, pre-decided policy. |
+| `"enforce"` | Raise `AgentMoatException` (or return a JSON-RPC error from the MCP proxy) on any hard violation. A fixed, pre-decided policy. |
 | `"interactive"` | Route violations to a human (or programmatic approver) for a real-time decision via `ApprovalGate`. A "deny" blocks the call just like enforce mode; an "approve" lets it through. |
 
 `"interactive"` mode is for situations where a blanket policy is too coarse — let
@@ -186,8 +186,8 @@ a human apply judgment to a specific borderline case instead of pre-encoding
 every exception:
 
 ```python
-from agentguard import GuardedClient, ApprovalGate
-from agentguard.control import ApprovalRequest, ApprovalDecision
+from agentmoat import GuardedClient, ApprovalGate
+from agentmoat.control import ApprovalRequest, ApprovalDecision
 
 def slack_approval_handler(request: ApprovalRequest) -> ApprovalDecision:
     # Post to Slack, wait for a thumbs-up/thumbs-down reaction, etc.
@@ -220,7 +220,7 @@ Independent of `mode`, any session — or every session in the process — can b
 halted immediately via `KillSwitch`:
 
 ```python
-from agentguard.control import get_default_kill_switch
+from agentmoat.control import get_default_kill_switch
 
 switch = get_default_kill_switch()
 switch.kill_session("session-123")   # halt one session
@@ -229,9 +229,9 @@ switch.revive_session("session-123") # restore it
 switch.status()                      # {"global": False, "killed_sessions": [...]}
 ```
 
-A killed session's next intercepted action raises `AgentGuardKilled` (a subclass
-of `AgentGuardException`) — or, for the MCP proxy, returns a JSON-RPC error
-(`AGENTGUARD_SESSION_KILLED`) — *before* any API call or tool execution happens.
+A killed session's next intercepted action raises `AgentMoatKilled` (a subclass
+of `AgentMoatException`) — or, for the MCP proxy, returns a JSON-RPC error
+(`AGENTMOAT_SESSION_KILLED`) — *before* any API call or tool execution happens.
 A critical `session_end` event with `flags=["kill:tripped"]` is emitted first,
 so the halt is visible in the audit trail.
 
@@ -263,18 +263,18 @@ survives process restarts (it resumes from the last line on disk) and rotations 
 file's first record continues from the rotated file's last hash).
 
 ```bash
-agentguard audit verify agentguard_audit.jsonl
+agentmoat audit verify agentmoat_audit.jsonl
 # ✓ Chain intact — 1,432 records verified
 #   (or, if a line was edited or removed:)
 # ✗ Chain broken at line 87 — record was modified or a prior line was deleted
 
-agentguard audit tail agentguard_audit.jsonl -n 50
-agentguard audit stats agentguard_audit.jsonl   # counts by event_type and severity
+agentmoat audit tail agentmoat_audit.jsonl -n 50
+agentmoat audit stats agentmoat_audit.jsonl   # counts by event_type and severity
 ```
 
 This gives you a forensic trail suitable for SOC 2 / ISO 27001 evidence: an auditor (or an
 incident responder) can independently confirm that the log they're looking at is the
-complete, unaltered record AgentGuard produced — not a reconstruction. It does not, by
+complete, unaltered record AgentMoat produced — not a reconstruction. It does not, by
 itself, prove *who* tampered with a file; pair it with filesystem-level access controls and
 off-host replication for full chain-of-custody guarantees.
 
@@ -300,7 +300,7 @@ python examples/langgraph_demo.py
 ```
 
 See [`dashboard/README.md`](dashboard/README.md) for dashboard-specific setup, including how to
-authenticate against an API started with `AGENTGUARD_API_KEY` set.
+authenticate against an API started with `AGENTMOAT_API_KEY` set.
 
 ---
 
@@ -314,7 +314,7 @@ pytest
 
 ## Trust Scoring
 
-AgentGuard tracks *information provenance* across agent hops. When a session processes external content (a file, a web page, a user upload), its trust score degrades:
+AgentMoat tracks *information provenance* across agent hops. When a session processes external content (a file, a web page, a user upload), its trust score degrades:
 
 ```
 Initial:          1.0  (TRUSTED  — human instructions)
@@ -333,7 +333,7 @@ When trust drops below 0.5, any attempt to call a sensitive tool (write, execute
 - [x] **Async GuardedClient** — `AsyncGuardedClient` wraps `AsyncAnthropic` for async codebases
 - [x] **Streaming support** — `GuardedStream` / `AsyncGuardedStream` intercept `messages.stream()`
 - [x] **MCP server integration** — transparent stdio + SSE proxy for Model Context Protocol
-- [x] **Tamper-evident audit log** — SHA-256 hash-chained JSONL with `agentguard audit verify`
+- [x] **Tamper-evident audit log** — SHA-256 hash-chained JSONL with `agentmoat audit verify`
 - [x] **Human-in-the-loop approval** — `mode="interactive"` routes violations through `ApprovalGate`
 - [x] **Kill switch** — halt any session (or every session) immediately, programmatically or via `/control`
 - [ ] **OpenTelemetry export** — emit spans/traces to any OTEL-compatible backend

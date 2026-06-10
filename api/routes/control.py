@@ -1,6 +1,6 @@
 """Kill-switch control routes.
 
-Exposes the process-wide :class:`~agentguard.control.KillSwitch` over HTTP so an
+Exposes the process-wide :class:`~agentmoat.control.KillSwitch` over HTTP so an
 operator (or an on-call dashboard) can halt one or every guarded session without
 touching the process running the agent.
 
@@ -11,7 +11,7 @@ Notes
   see the roadmap's "Multi-process bus" item) for a single trip to halt every
   worker.
 * Protected by ``require_api_key`` (see ``api/main.py``) — set
-  ``AGENTGUARD_API_KEY`` so an unauthenticated kill switch on the public
+  ``AGENTMOAT_API_KEY`` so an unauthenticated kill switch on the public
   internet can't be used as a denial-of-service vector against your own agents.
 """
 
@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from agentguard.control import get_default_kill_switch
+from agentmoat.control import get_default_kill_switch
 
 from ..main import require_api_key
 

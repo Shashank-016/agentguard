@@ -1,12 +1,12 @@
-# AgentGuard Threat Model
+# AgentMoat Threat Model
 
-This document states plainly what AgentGuard defends against, what it does not, and the
+This document states plainly what AgentMoat defends against, what it does not, and the
 assumptions behind those boundaries. It is deliberately honest about limitations — a security
 tool that overstates its protection is worse than none.
 
-## What AgentGuard is
+## What AgentMoat is
 
-AgentGuard is a security observability and policy-enforcement layer that sits between an AI agent
+AgentMoat is a security observability and policy-enforcement layer that sits between an AI agent
 and the model/tools it uses. It instruments three points: model calls (Anthropic & OpenAI SDKs),
 orchestration steps (LangGraph callbacks), and tool calls (a transparent MCP proxy). At each
 point it can detect, log, and — in `enforce`/`interactive` mode — block.
@@ -20,9 +20,9 @@ exfiltration, abuse of tools the agent legitimately has). This is the dominant r
 to autonomous agents.
 
 We do **not** assume an attacker with code execution on the host. If the attacker can run code in
-the same process, they can disable AgentGuard — see Limitations.
+the same process, they can disable AgentMoat — see Limitations.
 
-## What AgentGuard defends against
+## What AgentMoat defends against
 
 - **Prompt injection in inputs and tool results.** The injection detector scans user messages,
   system prompts, and (critically) tool/function-result messages — the main indirect-injection
@@ -37,24 +37,24 @@ the same process, they can disable AgentGuard — see Limitations.
 - **Cross-agent trust abuse.** A trust score degrades as a session ingests external content and
   passes data between agents; sensitive actions taken under a low-trust context are flagged.
 - **Audit tampering.** The audit log is hash-chained (SHA-256); editing or deleting any record
-  breaks the chain and is detectable via `agentguard audit verify`.
+  breaks the chain and is detectable via `agentmoat audit verify`.
 - **Runaway / unauthorized actions at machine speed**, via the kill switch (halt a session or all
   agents immediately) and human-in-the-loop approval for high-risk actions.
 
-## What AgentGuard does NOT defend against (limitations)
+## What AgentMoat does NOT defend against (limitations)
 
 - **Obfuscated injection.** The injection detector is pattern-based. It does not reliably catch
   payloads hidden via base64, unicode homoglyphs, zero-width characters, heavy paraphrasing, or
   translation into other languages. Optional embedding-based detection helps but is not
   exhaustive. Treat injection detection as defense-in-depth, not a guarantee.
-- **`observe` mode is passive.** In the default `observe` mode AgentGuard logs and flags but does
+- **`observe` mode is passive.** In the default `observe` mode AgentMoat logs and flags but does
   not block. Blocking requires `enforce` or `interactive` mode and correct policy configuration.
 - **Misconfiguration.** Protection depends on the policy file. With no policy, all tools are
   allowed. An incomplete allow/deny list or missing argument constraints leaves gaps.
-- **In-process compromise.** AgentGuard runs in the same process as the agent (except the MCP
+- **In-process compromise.** AgentMoat runs in the same process as the agent (except the MCP
   proxy, which is a separate process). An attacker who already has code execution on the host can
-  disable or bypass it. AgentGuard protects against malicious *content*, not a compromised host.
-- **Model-internal reasoning attacks.** AgentGuard inspects inputs, outputs, and tool calls — not
+  disable or bypass it. AgentMoat protects against malicious *content*, not a compromised host.
+- **Model-internal reasoning attacks.** AgentMoat inspects inputs, outputs, and tool calls — not
   the model's hidden chain of thought. Attacks that never surface in observable I/O are out of
   scope.
 - **Multi-process / distributed limits.** Rate limits and in-memory trust/state are per-process.
@@ -66,6 +66,6 @@ the same process, they can disable AgentGuard — see Limitations.
 
 ## Defense-in-depth posture
 
-AgentGuard is one layer. It is most effective combined with: least-privilege tool design,
+AgentMoat is one layer. It is most effective combined with: least-privilege tool design,
 sandboxed tool execution, scoped/short-lived credentials, and human review of high-impact
 actions. No single layer — including this one — should be relied on alone.

@@ -22,7 +22,7 @@ from .events import SecurityEvent
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_PATH = "agentguard_audit.jsonl"
+_DEFAULT_PATH = "agentmoat_audit.jsonl"
 _DEFAULT_ROTATE_MB = 50
 
 # Hash chain genesis value — the ``prev_hash`` of the first record in a fresh file.
@@ -56,8 +56,8 @@ class ChainVerificationResult:
 class AuditLogger:
     """Synchronous, append-only JSONL audit log.
 
-    Subscribes to an :class:`~agentguard.bus.EventBus` and writes one JSON
-    line per :class:`~agentguard.events.SecurityEvent`.  Every agent action
+    Subscribes to an :class:`~agentmoat.bus.EventBus` and writes one JSON
+    line per :class:`~agentmoat.events.SecurityEvent`.  Every agent action
     — LLM calls, tool calls, injections, policy checks, session lifecycle —
     is recorded with full context and timestamp.
 
@@ -65,7 +65,7 @@ class AuditLogger:
     ----------
     path:
         Path to the audit log file. Created (and parent directories) if it
-        does not exist. Defaults to ``agentguard_audit.jsonl`` in the current
+        does not exist. Defaults to ``agentmoat_audit.jsonl`` in the current
         working directory.
     rotate_mb:
         Rotate the log file when it exceeds this size in megabytes. The old

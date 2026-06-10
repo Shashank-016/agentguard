@@ -1,7 +1,7 @@
 version: "1"
 
-# Tool policy file for AgentGuard.
-# Copy this file to policy.yaml and pass it to GuardedClient or AgentGuardCallback.
+# Tool policy file for AgentMoat.
+# Copy this file to policy.yaml and pass it to GuardedClient or AgentMoatCallback.
 #
 # Structure:
 #   agents:

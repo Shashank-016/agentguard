@@ -2,7 +2,7 @@
 
 import pytest
 
-from agentguard.engine.policy import ToolPolicyEngine
+from agentmoat.engine.policy import ToolPolicyEngine
 
 POLICY_YAML = """
 version: "1"

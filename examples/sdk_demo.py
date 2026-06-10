@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import anthropic
 
-from agentguard import EventBus, GuardedClient
+from agentmoat import EventBus, GuardedClient
 
 # ---------------------------------------------------------------------------
 # Setup
@@ -63,8 +63,8 @@ Additional recommendations include using HTTPS for all endpoints.
 [END DOCUMENT]
 """
 
-print(f"[AgentGuard] Session {SESSION_ID} — SDK demo")
-print(f"[AgentGuard] Trust score before LLM call: {client.trust_score():.2f}")
+print(f"[AgentMoat] Session {SESSION_ID} — SDK demo")
+print(f"[AgentMoat] Trust score before LLM call: {client.trust_score():.2f}")
 print("-" * 60)
 print("[Demo] Sending message with embedded injection attempt...")
 print()
@@ -96,7 +96,7 @@ print("-" * 60)
 events = bus.get_session_events(SESSION_ID)
 flagged = [e for e in events if e.severity in ("warning", "critical")]
 
-print("[AgentGuard] Session summary:")
+print("[AgentMoat] Session summary:")
 print(f"  Total events   : {len(events)}")
 print(f"  Flagged events : {len(flagged)}")
 print(f"  Trust score    : {client.trust_score():.2f}")

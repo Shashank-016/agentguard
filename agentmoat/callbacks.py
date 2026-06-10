@@ -1,4 +1,4 @@
-"""AgentGuardCallback — LangGraph/LangChain callback handler for security observability."""
+"""AgentMoatCallback — LangGraph/LangChain callback handler for security observability."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ except ImportError:  # pragma: no cover
     _LANGCHAIN_AVAILABLE = False
 
 
-class AgentGuardCallback(BaseCallbackHandler):
+class AgentMoatCallback(BaseCallbackHandler):
     """LangGraph/LangChain callback handler that emits SecurityEvents.
 
     Attach to any LangChain or LangGraph runnable to get automatic
@@ -40,11 +40,11 @@ class AgentGuardCallback(BaseCallbackHandler):
     agent_id:
         Logical name of the agent (used in policy lookups and event records).
     bus:
-        Shared :class:`~agentguard.bus.EventBus`. Created fresh if not provided.
+        Shared :class:`~agentmoat.bus.EventBus`. Created fresh if not provided.
     policy_path:
         Path to a YAML tool policy file.
     trust_scorer:
-        Shared :class:`~agentguard.engine.trust.TrustScorer`.
+        Shared :class:`~agentmoat.engine.trust.TrustScorer`.
     mode:
         ``"observe"`` (default) or ``"enforce"``.
     audit_log:
@@ -56,9 +56,9 @@ class AgentGuardCallback(BaseCallbackHandler):
     -------
     ::
 
-        from agentguard import AgentGuardCallback
+        from agentmoat import AgentMoatCallback
 
-        callback = AgentGuardCallback(
+        callback = AgentMoatCallback(
             session_id="run-001",
             agent_id="researcher",
             audit_log="logs/audit.jsonl",
@@ -91,7 +91,7 @@ class AgentGuardCallback(BaseCallbackHandler):
         if audit_log is not None:
             self._audit_logger = AuditLogger(path=audit_log)
             self._bus.subscribe(self._audit_logger)
-            logger.info("[AgentGuard] Audit log -> %s", audit_log)
+            logger.info("[AgentMoat] Audit log -> %s", audit_log)
 
         # Tracks (chain_run_id -> event_id) for causal linking.
         self._active_chains: dict[str, str] = {}
@@ -109,7 +109,7 @@ class AgentGuardCallback(BaseCallbackHandler):
             )
         )
         logger.info(
-            "[AgentGuard] Session %s started (agent=%s, mode=%s)",
+            "[AgentMoat] Session %s started (agent=%s, mode=%s)",
             self.session_id,
             agent_id,
             mode,
@@ -147,7 +147,7 @@ class AgentGuardCallback(BaseCallbackHandler):
                 ),
             )
         )
-        logger.info("[AgentGuard] node_traversal: %s -> INFO", node_name)
+        logger.info("[AgentMoat] node_traversal: %s -> INFO", node_name)
 
     def on_chain_end(
         self,
@@ -196,7 +196,7 @@ class AgentGuardCallback(BaseCallbackHandler):
                 payload=make_payload(message_count=len(flat_messages)),
             )
         )
-        logger.info("[AgentGuard] llm_call: %s -> INFO", node_name)
+        logger.info("[AgentMoat] llm_call: %s -> INFO", node_name)
 
         if injection_matches:
             flags = [m.flag for m in injection_matches]
@@ -231,7 +231,7 @@ class AgentGuardCallback(BaseCallbackHandler):
                 )
             )
             logger.warning(
-                "[AgentGuard] injection_detected: %s -> %s\n  flags: %s\n  trust_score: %.2f "
+                "[AgentMoat] injection_detected: %s -> %s\n  flags: %s\n  trust_score: %.2f "
                 "(degraded — external content processed)",
                 node_name,
                 severity.upper(),
@@ -280,7 +280,7 @@ class AgentGuardCallback(BaseCallbackHandler):
                 )
             )
             logger.warning(
-                "[AgentGuard] trust_flag: %s -> WARNING\n  reason: low-trust session "
+                "[AgentMoat] trust_flag: %s -> WARNING\n  reason: low-trust session "
                 "(score=%.2f), attempting %s",
                 node_name,
                 trust_score,
@@ -307,7 +307,7 @@ class AgentGuardCallback(BaseCallbackHandler):
                 )
             )
             logger.error(
-                "[AgentGuard] policy_violation: %s.%s -> CRITICAL\n  reason: %s",
+                "[AgentMoat] policy_violation: %s.%s -> CRITICAL\n  reason: %s",
                 node_name,
                 tool_name,
                 policy_result.reason,
@@ -324,7 +324,7 @@ class AgentGuardCallback(BaseCallbackHandler):
                     parent_event_id=parent_id,
                 )
             )
-            logger.info("[AgentGuard] tool_call: %s.%s -> INFO", node_name, tool_name)
+            logger.info("[AgentMoat] tool_call: %s.%s -> INFO", node_name, tool_name)
 
     def on_tool_end(
         self,
@@ -360,7 +360,7 @@ class AgentGuardCallback(BaseCallbackHandler):
                 )
             )
             logger.warning(
-                "[AgentGuard] injection_detected in tool output: %s -> WARNING  flags=%s",
+                "[AgentMoat] injection_detected in tool output: %s -> WARNING  flags=%s",
                 node_name,
                 flags,
             )
@@ -377,7 +377,7 @@ class AgentGuardCallback(BaseCallbackHandler):
         """Signal a data handoff between agents in a multi-agent graph."""
         self._trust_scorer.record_agent_handoff(self.session_id, from_agent, to_agent)
         logger.info(
-            "[AgentGuard] agent_handoff: %s -> %s (trust=%.2f)",
+            "[AgentMoat] agent_handoff: %s -> %s (trust=%.2f)",
             from_agent,
             to_agent,
             self._trust_scorer.score(self.session_id),

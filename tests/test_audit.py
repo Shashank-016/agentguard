@@ -5,8 +5,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from agentguard import AuditLogger, EventBus, GuardedClient
-from agentguard.events import SecurityEvent
+from agentmoat import AuditLogger, EventBus, GuardedClient
+from agentmoat.events import SecurityEvent
 
 # ---------------------------------------------------------------------------
 # AuditLogger standalone

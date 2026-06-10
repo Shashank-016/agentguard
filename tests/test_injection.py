@@ -2,7 +2,7 @@
 
 import pytest
 
-from agentguard.engine.injection import InjectionDetector
+from agentmoat.engine.injection import InjectionDetector
 
 
 @pytest.fixture

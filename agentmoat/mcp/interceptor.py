@@ -19,11 +19,11 @@ from ..engine.policy import ToolPolicyEngine
 from ..engine.trust import TrustScorer
 from ..events import SecurityEvent
 from .models import (
-    AGENTGUARD_ENGINE_ERROR,
-    AGENTGUARD_INJECTION_DETECTED,
-    AGENTGUARD_POLICY_VIOLATION,
-    AGENTGUARD_SESSION_KILLED,
-    AGENTGUARD_TRUST_VIOLATION,
+    AGENTMOAT_ENGINE_ERROR,
+    AGENTMOAT_INJECTION_DETECTED,
+    AGENTMOAT_POLICY_VIOLATION,
+    AGENTMOAT_SESSION_KILLED,
+    AGENTMOAT_TRUST_VIOLATION,
     MCPRequest,
     MCPToolCallParams,
 )
@@ -40,7 +40,7 @@ class InterceptResult:
     allowed:
         Whether the request should be forwarded to the upstream server.
     events:
-        All :class:`~agentguard.events.SecurityEvent` objects generated during this check.
+        All :class:`~agentmoat.events.SecurityEvent` objects generated during this check.
     block_reason:
         Human-readable reason for blocking (None if allowed).
     block_code:
@@ -70,7 +70,7 @@ _PASSTHROUGH_METHODS = frozenset(
 class MCPInterceptor:
     """Security engine adapter for MCP tool calls.
 
-    Receives an :class:`~agentguard.mcp.models.MCPRequest`, runs all relevant
+    Receives an :class:`~agentmoat.mcp.models.MCPRequest`, runs all relevant
     security checks (injection, policy, trust), emits events via the bus, and
     returns an :class:`InterceptResult`.
 
@@ -81,7 +81,7 @@ class MCPInterceptor:
     session_id:
         Session identifier for grouping events.
     bus:
-        :class:`~agentguard.bus.EventBus` to emit events on.
+        :class:`~agentmoat.bus.EventBus` to emit events on.
     policy_path:
         Optional path to a YAML policy file.
     mode:
@@ -90,11 +90,11 @@ class MCPInterceptor:
         ``"interactive"`` — route violations through ``approval_gate`` for a
         human (or programmatic) decision; a "deny" blocks the request.
     approval_gate:
-        :class:`~agentguard.control.ApprovalGate` used in ``mode="interactive"``.
+        :class:`~agentmoat.control.ApprovalGate` used in ``mode="interactive"``.
         If ``None``, a default gate (CLI y/N prompt) is created when needed.
     kill_switch:
-        Shared :class:`~agentguard.control.KillSwitch`. Defaults to the
-        process-wide singleton from :func:`~agentguard.control.get_default_kill_switch`.
+        Shared :class:`~agentmoat.control.KillSwitch`. Defaults to the
+        process-wide singleton from :func:`~agentmoat.control.get_default_kill_switch`.
     """
 
     def __init__(
@@ -174,7 +174,7 @@ class MCPInterceptor:
         methods are logged at info level and passed through without blocking.
 
         If this session (or the global switch) has been tripped via
-        :class:`~agentguard.control.KillSwitch`, the request is blocked
+        :class:`~agentmoat.control.KillSwitch`, the request is blocked
         immediately without running any checks or contacting the upstream server.
 
         Returns
@@ -193,7 +193,7 @@ class MCPInterceptor:
                 flags=["kill:tripped"],
             )
             self.bus.emit(event)
-            logger.critical("[AgentGuard/MCP] Session %s halted by kill switch", self.session_id)
+            logger.critical("[AgentMoat/MCP] Session %s halted by kill switch", self.session_id)
             return InterceptResult(
                 allowed=False,
                 events=[event],
@@ -201,7 +201,7 @@ class MCPInterceptor:
                     f"Session '{self.session_id}' has been killed via KillSwitch — "
                     "request blocked."
                 ),
-                block_code=AGENTGUARD_SESSION_KILLED,
+                block_code=AGENTMOAT_SESSION_KILLED,
             )
 
         events: list[SecurityEvent] = []
@@ -233,7 +233,7 @@ class MCPInterceptor:
                     )
                     events.append(event)
                     logger.warning(
-                        "[AgentGuard/MCP] injection_detected: %s → CRITICAL  tool=%s  flags=%s",
+                        "[AgentMoat/MCP] injection_detected: %s → CRITICAL  tool=%s  flags=%s",
                         self.agent_id,
                         params.name,
                         flags,
@@ -244,7 +244,7 @@ class MCPInterceptor:
                             f"Injection detected in tool arguments: "
                             f"{[m.pattern_name for m in matches]}"
                         )
-                        block_code = AGENTGUARD_INJECTION_DETECTED
+                        block_code = AGENTMOAT_INJECTION_DETECTED
                     elif self.mode == "interactive":
                         decision = self._request_approval(
                             events=events,
@@ -265,7 +265,7 @@ class MCPInterceptor:
                                 f"Injection detected in tool arguments — denied by approver: "
                                 f"{[m.pattern_name for m in matches]}"
                             )
-                            block_code = AGENTGUARD_INJECTION_DETECTED
+                            block_code = AGENTMOAT_INJECTION_DETECTED
 
                 # 2. Argument-level constraint check (path traversal, SSRF, shell metachars, ...)
                 violations = self._policy.check_arguments(
@@ -296,7 +296,7 @@ class MCPInterceptor:
                     )
                     events.append(event)
                     logger.warning(
-                        "[AgentGuard/MCP] policy_violation: %s → CRITICAL  tool=%s  constraints=%s",
+                        "[AgentMoat/MCP] policy_violation: %s → CRITICAL  tool=%s  constraints=%s",
                         self.agent_id,
                         params.name,
                         violation_flags,
@@ -307,7 +307,7 @@ class MCPInterceptor:
                             f"Argument constraint violation for tool '{params.name}': "
                             f"{[v.detail for v in violations]}"
                         )
-                        block_code = AGENTGUARD_POLICY_VIOLATION
+                        block_code = AGENTMOAT_POLICY_VIOLATION
                     elif self.mode == "interactive":
                         decision = self._request_approval(
                             events=events,
@@ -328,7 +328,7 @@ class MCPInterceptor:
                                 f"Argument constraint violation for tool '{params.name}' — "
                                 f"denied by approver: {[v.detail for v in violations]}"
                             )
-                            block_code = AGENTGUARD_POLICY_VIOLATION
+                            block_code = AGENTMOAT_POLICY_VIOLATION
 
                 # 3. Policy check
                 policy_result = self._policy.check(self.agent_id, params.name)
@@ -347,7 +347,7 @@ class MCPInterceptor:
                     )
                     events.append(event)
                     logger.warning(
-                        "[AgentGuard/MCP] policy_violation: %s → CRITICAL  tool=%s  reason=%s",
+                        "[AgentMoat/MCP] policy_violation: %s → CRITICAL  tool=%s  reason=%s",
                         self.agent_id,
                         params.name,
                         policy_result.reason,
@@ -357,7 +357,7 @@ class MCPInterceptor:
                         block_reason = (
                             f"Tool '{params.name}' denied by policy: {policy_result.reason}"
                         )
-                        block_code = AGENTGUARD_POLICY_VIOLATION
+                        block_code = AGENTMOAT_POLICY_VIOLATION
                     elif self.mode == "interactive":
                         decision = self._request_approval(
                             events=events,
@@ -371,7 +371,7 @@ class MCPInterceptor:
                                 f"Tool '{params.name}' denied by policy and approver: "
                                 f"{policy_result.reason}"
                             )
-                            block_code = AGENTGUARD_POLICY_VIOLATION
+                            block_code = AGENTMOAT_POLICY_VIOLATION
 
                 # 4. Trust check (warning only — never hard-blocks in enforce mode;
                 #    interactive mode still routes it through the approval gate)
@@ -391,7 +391,7 @@ class MCPInterceptor:
                     )
                     events.append(event)
                     logger.warning(
-                        "[AgentGuard/MCP] trust_flag: %s  tool=%s  score=%.2f",
+                        "[AgentMoat/MCP] trust_flag: %s  tool=%s  score=%.2f",
                         self.agent_id,
                         params.name,
                         score,
@@ -412,7 +412,7 @@ class MCPInterceptor:
                                 f"Tool '{params.name}' denied by approver due to low trust "
                                 f"score ({score:.2f})"
                             )
-                            block_code = AGENTGUARD_TRUST_VIOLATION
+                            block_code = AGENTMOAT_TRUST_VIOLATION
 
                 # 5. Baseline tool_call event (emitted when the call is allowed or in observe mode)
                 if allowed or self.mode == "observe":
@@ -431,7 +431,7 @@ class MCPInterceptor:
                     )
             except Exception as exc:
                 logger.exception(
-                    "[AgentGuard/MCP] Internal security engine error while evaluating tool call"
+                    "[AgentMoat/MCP] Internal security engine error while evaluating tool call"
                 )
                 events.append(
                     SecurityEvent(
@@ -456,7 +456,7 @@ class MCPInterceptor:
                             f"Internal security engine error while evaluating tool call "
                             f"— failing closed (mode={self.mode}). {exc}"
                         )
-                        block_code = AGENTGUARD_ENGINE_ERROR
+                        block_code = AGENTMOAT_ENGINE_ERROR
                 else:
                     # observe mode: fail open, but the engine_error event above
                     # makes the failure loud and visible in the audit trail.

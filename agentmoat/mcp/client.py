@@ -1,4 +1,4 @@
-"""MCP upstream clients — connect AgentGuard proxy to the real MCP server."""
+"""MCP upstream clients — connect AgentMoat proxy to the real MCP server."""
 
 from __future__ import annotations
 
@@ -45,7 +45,7 @@ class StdioUpstreamClient:
         self._reader_task = asyncio.create_task(self._read_loop())
         self._stderr_task = asyncio.create_task(self._drain_stderr())
         logger.info(
-            "[AgentGuard/MCP] Upstream process started: %s (pid=%d)",
+            "[AgentMoat/MCP] Upstream process started: %s (pid=%d)",
             " ".join(self.command),
             self._process.pid,
         )
@@ -80,7 +80,7 @@ class StdioUpstreamClient:
             return await asyncio.wait_for(future, timeout=30.0)
         except asyncio.TimeoutError:
             self._pending.pop(req_id, None)
-            logger.error("[AgentGuard/MCP] Timeout waiting for response to id=%s", req_id)
+            logger.error("[AgentMoat/MCP] Timeout waiting for response to id=%s", req_id)
             return MCPResponse(
                 id=req_id,
                 error={"code": INTERNAL_ERROR, "message": "Upstream response timeout"},
@@ -108,7 +108,7 @@ class StdioUpstreamClient:
                 await asyncio.wait_for(self._process.wait(), timeout=5.0)
             except (ProcessLookupError, asyncio.TimeoutError):
                 self._process.kill()
-            logger.info("[AgentGuard/MCP] Upstream process terminated")
+            logger.info("[AgentMoat/MCP] Upstream process terminated")
 
     async def _read_loop(self) -> None:
         """Background task: read stdout lines and resolve pending futures."""
@@ -130,14 +130,14 @@ class StdioUpstreamClient:
                 except (json.JSONDecodeError, ValueError, TypeError) as exc:
                     # Malformed/unexpected line from upstream — not a reader-loop bug.
                     logger.debug(
-                        "[AgentGuard/MCP] Failed to parse upstream line: %s — %s",
+                        "[AgentMoat/MCP] Failed to parse upstream line: %s — %s",
                         line[:200],
                         exc,
                     )
         except asyncio.CancelledError:
             pass
         except Exception:
-            logger.exception("[AgentGuard/MCP] Read loop crashed")
+            logger.exception("[AgentMoat/MCP] Read loop crashed")
         finally:
             # Resolve all pending futures with an error
             for future in self._pending.values():
@@ -159,11 +159,11 @@ class StdioUpstreamClient:
             async for raw_line in self._process.stderr:
                 line = raw_line.decode(errors="replace").rstrip()
                 if line:
-                    logger.debug("[AgentGuard/MCP] upstream stderr: %s", line)
+                    logger.debug("[AgentMoat/MCP] upstream stderr: %s", line)
         except asyncio.CancelledError:
             pass
         except Exception:
-            logger.exception("[AgentGuard/MCP] stderr drain task crashed")
+            logger.exception("[AgentMoat/MCP] stderr drain task crashed")
 
 
 class SSEUpstreamClient:
@@ -192,7 +192,7 @@ class SSEUpstreamClient:
                 headers=self.headers,
                 timeout=30.0,
             )
-            logger.info("[AgentGuard/MCP] SSE upstream client connected to %s", self.base_url)
+            logger.info("[AgentMoat/MCP] SSE upstream client connected to %s", self.base_url)
         except ImportError as exc:
             raise RuntimeError(
                 "httpx is required for SSEUpstreamClient. Install with: pip install httpx"
@@ -215,13 +215,13 @@ class SSEUpstreamClient:
             data = response.json()
             return MCPResponse(**data)
         except httpx.HTTPStatusError as exc:
-            logger.error("[AgentGuard/MCP] Upstream HTTP error: %s", exc)
+            logger.error("[AgentMoat/MCP] Upstream HTTP error: %s", exc)
             return MCPResponse(
                 id=request.id,
                 error={"code": INTERNAL_ERROR, "message": str(exc)},
             )
         except Exception as exc:
-            logger.error("[AgentGuard/MCP] Upstream request failed: %s", exc)
+            logger.error("[AgentMoat/MCP] Upstream request failed: %s", exc)
             return MCPResponse(
                 id=request.id,
                 error={"code": INTERNAL_ERROR, "message": str(exc)},
@@ -231,4 +231,4 @@ class SSEUpstreamClient:
         """Close the HTTP client."""
         if self._client is not None:
             await self._client.aclose()  # type: ignore[attr-defined]
-            logger.info("[AgentGuard/MCP] SSE upstream client closed")
+            logger.info("[AgentMoat/MCP] SSE upstream client closed")

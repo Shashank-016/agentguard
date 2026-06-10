@@ -1,4 +1,4 @@
-"""MCP proxy servers — expose AgentGuard as an MCP-compatible stdio or HTTP server."""
+"""MCP proxy servers — expose AgentMoat as an MCP-compatible stdio or HTTP server."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 class StdioProxyServer:
-    """Runs the AgentGuard MCP proxy on stdio.
+    """Runs the AgentMoat MCP proxy on stdio.
 
     The agent treats this process as an MCP server. All JSON-RPC messages
     arrive on stdin and responses are written to stdout — the standard MCP
@@ -22,7 +22,7 @@ class StdioProxyServer:
 
     Usage via CLI::
 
-        agentguard mcp proxy stdio \\
+        agentmoat mcp proxy stdio \\
             --upstream-cmd "npx -y @modelcontextprotocol/server-filesystem /tmp" \\
             --agent-id researcher \\
             --policy policy.yaml \\
@@ -31,7 +31,7 @@ class StdioProxyServer:
     Parameters
     ----------
     proxy:
-        A configured :class:`~agentguard.mcp.proxy.MCPProxy`.
+        A configured :class:`~agentmoat.mcp.proxy.MCPProxy`.
     """
 
     def __init__(self, proxy: MCPProxy) -> None:
@@ -39,7 +39,7 @@ class StdioProxyServer:
 
     async def run(self) -> None:
         """Read JSON-RPC messages from stdin, handle via proxy, write responses to stdout."""
-        logger.info("[AgentGuard/MCP] StdioProxyServer started")
+        logger.info("[AgentMoat/MCP] StdioProxyServer started")
         loop = asyncio.get_event_loop()
         while True:
             try:
@@ -68,21 +68,21 @@ class StdioProxyServer:
                 sys.stdout.write(json.dumps(error_response) + "\n")
                 sys.stdout.flush()
             except Exception:
-                logger.exception("[AgentGuard/MCP] Error handling stdin message")
+                logger.exception("[AgentMoat/MCP] Error handling stdin message")
 
-        logger.info("[AgentGuard/MCP] StdioProxyServer stopped")
+        logger.info("[AgentMoat/MCP] StdioProxyServer stopped")
 
 
 class SSEProxyServer:
-    """Runs the AgentGuard MCP proxy as an HTTP server with SSE transport.
+    """Runs the AgentMoat MCP proxy as an HTTP server with SSE transport.
 
     Agents connect to ``http://localhost:<port>/mcp`` (POST) or ``/sse`` (GET)
     instead of the real MCP server URL. All requests are intercepted and
-    forwarded through :class:`~agentguard.mcp.proxy.MCPProxy`.
+    forwarded through :class:`~agentmoat.mcp.proxy.MCPProxy`.
 
     Usage via CLI::
 
-        agentguard mcp proxy sse \\
+        agentmoat mcp proxy sse \\
             --upstream-url http://localhost:3000 \\
             --port 8899 \\
             --agent-id researcher \\
@@ -91,7 +91,7 @@ class SSEProxyServer:
     Parameters
     ----------
     proxy:
-        A configured :class:`~agentguard.mcp.proxy.MCPProxy`.
+        A configured :class:`~agentmoat.mcp.proxy.MCPProxy`.
     port:
         TCP port to listen on (default ``8899``).
     """
@@ -111,11 +111,11 @@ class SSEProxyServer:
                 "fastapi is required for SSEProxyServer. Install with: pip install fastapi"
             ) from exc
 
-        app = FastAPI(title="AgentGuard MCP Proxy")
+        app = FastAPI(title="AgentMoat MCP Proxy")
 
         @app.get("/health")
         async def health() -> dict:
-            return {"status": "ok", "service": "agentguard-mcp-proxy"}
+            return {"status": "ok", "service": "agentmoat-mcp-proxy"}
 
         @app.post("/mcp")
         async def mcp_post(request: Request) -> JSONResponse:
@@ -157,5 +157,5 @@ class SSEProxyServer:
         app = self._build_app()
         config = uvicorn.Config(app, host="0.0.0.0", port=self.port, log_level="info")
         server = uvicorn.Server(config)
-        logger.info("[AgentGuard/MCP] SSEProxyServer listening on port %d", self.port)
+        logger.info("[AgentMoat/MCP] SSEProxyServer listening on port %d", self.port)
         await server.serve()

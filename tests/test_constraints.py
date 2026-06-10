@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from agentguard.bus import EventBus
-from agentguard.engine.constraints import ArgumentConstraintChecker, ConstraintViolation
-from agentguard.engine.policy import ToolConstraints, ToolPolicyEngine
-from agentguard.mcp.interceptor import MCPInterceptor
-from agentguard.mcp.models import MCPRequest
+from agentmoat.bus import EventBus
+from agentmoat.engine.constraints import ArgumentConstraintChecker, ConstraintViolation
+from agentmoat.engine.policy import ToolConstraints, ToolPolicyEngine
+from agentmoat.mcp.interceptor import MCPInterceptor
+from agentmoat.mcp.models import MCPRequest
 
 POLICY_YAML = """
 version: "1"

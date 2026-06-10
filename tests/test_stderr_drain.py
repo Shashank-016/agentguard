@@ -16,7 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agentguard.mcp.client import StdioUpstreamClient
+from agentmoat.mcp.client import StdioUpstreamClient
 
 
 class _FakeStream:
@@ -49,7 +49,7 @@ def _fake_process(stdout_lines=None, stderr_lines=None):
 
 @pytest.fixture
 def caplog_debug(caplog):
-    caplog.set_level(logging.DEBUG, logger="agentguard.mcp.client")
+    caplog.set_level(logging.DEBUG, logger="agentmoat.mcp.client")
     return caplog
 
 
@@ -126,7 +126,7 @@ class TestStderrDrain:
             client = StdioUpstreamClient(command=["fake-server"])
             await client.start()
             try:
-                from agentguard.mcp.models import MCPRequest
+                from agentmoat.mcp.models import MCPRequest
 
                 response = await client.send(MCPRequest(id=1, method="tools/list", params={}))
                 assert response.result == {"ok": True}

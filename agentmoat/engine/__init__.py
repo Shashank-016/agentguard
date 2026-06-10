@@ -1,4 +1,4 @@
-"""AgentGuard detection engines: injection, policy, and trust scoring."""
+"""AgentMoat detection engines: injection, policy, and trust scoring."""
 
 from .injection import InjectionDetector, InjectionMatch
 from .policy import PolicyResult, ToolPolicyEngine

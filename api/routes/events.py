@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from agentguard.events import SecurityEvent
-from agentguard.store import EventStore
+from agentmoat.events import SecurityEvent
+from agentmoat.store import EventStore
 
 from ..main import get_store, require_api_key
 

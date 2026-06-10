@@ -20,7 +20,7 @@ from .events import SecurityEvent
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_URL = "sqlite+aiosqlite:///agentguard.db"
+_DEFAULT_URL = "sqlite+aiosqlite:///agentmoat.db"
 
 
 class Base(DeclarativeBase):

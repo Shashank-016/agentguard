@@ -1,6 +1,6 @@
 """Secret and PII redaction for event payloads.
 
-AgentGuard observes raw LLM messages, tool arguments, and responses — which
+AgentMoat observes raw LLM messages, tool arguments, and responses — which
 routinely contain API keys, access tokens, private keys, JWTs, or email
 addresses that shouldn't be persisted verbatim into the audit trail or shown
 on the dashboard. :func:`redact` walks a payload and replaces recognizable
@@ -10,7 +10,7 @@ itself.
 
 Toggle
 ------
-Redaction is **on by default**. Disable it via the ``AGENTGUARD_REDACT``
+Redaction is **on by default**. Disable it via the ``AGENTMOAT_REDACT``
 environment variable (``"0"``/``"false"``/``"no"``/``"off"``) or
 programmatically via :func:`set_redaction_enabled` — e.g. for tests that need
 to assert on raw payload contents.
@@ -39,17 +39,17 @@ _PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("email", re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")),
 ]
 
-_ENV_VAR = "AGENTGUARD_REDACT"
+_ENV_VAR = "AGENTMOAT_REDACT"
 _FALSY = frozenset({"0", "false", "no", "off"})
 
 # Programmatic override — set via set_redaction_enabled(). Takes precedence
-# over AGENTGUARD_REDACT when not None. Primarily for tests and embedders that
+# over AGENTMOAT_REDACT when not None. Primarily for tests and embedders that
 # need to force a setting regardless of the process environment.
 _override: bool | None = None
 
 
 def set_redaction_enabled(enabled: bool | None) -> None:
-    """Force redaction on/off process-wide, overriding ``AGENTGUARD_REDACT``.
+    """Force redaction on/off process-wide, overriding ``AGENTMOAT_REDACT``.
 
     Pass ``None`` to clear the override and fall back to the environment
     variable (the default behavior).
@@ -62,7 +62,7 @@ def is_redaction_enabled() -> bool:
     """Return whether redaction is currently active.
 
     Resolution order: explicit :func:`set_redaction_enabled` override, then
-    the ``AGENTGUARD_REDACT`` environment variable, then the default (on).
+    the ``AGENTMOAT_REDACT`` environment variable, then the default (on).
     """
     if _override is not None:
         return _override

@@ -1,4 +1,4 @@
-"""Tests for the AgentGuard CLI — audit subcommands and MCP proxy entry points."""
+"""Tests for the AgentMoat CLI — audit subcommands and MCP proxy entry points."""
 
 from __future__ import annotations
 
@@ -8,9 +8,9 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from click.testing import CliRunner
 
-from agentguard.audit import AuditLogger
-from agentguard.cli import cli
-from agentguard.events import SecurityEvent
+from agentmoat.audit import AuditLogger
+from agentmoat.cli import cli
+from agentmoat.events import SecurityEvent
 
 
 def _make_event(
@@ -32,7 +32,7 @@ def runner() -> CliRunner:
 
 
 # ---------------------------------------------------------------------------
-# agentguard audit verify
+# agentmoat audit verify
 # ---------------------------------------------------------------------------
 
 
@@ -67,7 +67,7 @@ class TestAuditVerify:
 
 
 # ---------------------------------------------------------------------------
-# agentguard audit tail
+# agentmoat audit tail
 # ---------------------------------------------------------------------------
 
 
@@ -99,7 +99,7 @@ class TestAuditTail:
 
 
 # ---------------------------------------------------------------------------
-# agentguard audit stats
+# agentmoat audit stats
 # ---------------------------------------------------------------------------
 
 
@@ -135,13 +135,13 @@ class TestAuditStats:
 
 
 # ---------------------------------------------------------------------------
-# agentguard mcp proxy stdio|sse
+# agentmoat mcp proxy stdio|sse
 # ---------------------------------------------------------------------------
 
 
 class TestMcpProxyEntryPoints:
     def test_stdio_invokes_run_stdio(self, runner):
-        with patch("agentguard.cli._run_stdio", new=AsyncMock()) as mock_run:
+        with patch("agentmoat.cli._run_stdio", new=AsyncMock()) as mock_run:
             result = runner.invoke(
                 cli,
                 [
@@ -163,7 +163,7 @@ class TestMcpProxyEntryPoints:
         mock_run.assert_called_once_with("echo hi", "researcher", None, "enforce", "sess-1")
 
     def test_sse_invokes_run_sse(self, runner):
-        with patch("agentguard.cli._run_sse", new=AsyncMock()) as mock_run:
+        with patch("agentmoat.cli._run_sse", new=AsyncMock()) as mock_run:
             result = runner.invoke(
                 cli,
                 [

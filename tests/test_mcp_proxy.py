@@ -6,15 +6,15 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from agentguard.bus import EventBus
-from agentguard.mcp.interceptor import MCPInterceptor
-from agentguard.mcp.models import (
-    AGENTGUARD_INJECTION_DETECTED,
-    AGENTGUARD_POLICY_VIOLATION,
+from agentmoat.bus import EventBus
+from agentmoat.mcp.interceptor import MCPInterceptor
+from agentmoat.mcp.models import (
+    AGENTMOAT_INJECTION_DETECTED,
+    AGENTMOAT_POLICY_VIOLATION,
     MCPRequest,
     MCPResponse,
 )
-from agentguard.mcp.proxy import MCPProxy
+from agentmoat.mcp.proxy import MCPProxy
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -139,7 +139,7 @@ class TestMCPInterceptorInjection:
         )
         result = interceptor.intercept(request)
         assert result.allowed is False
-        assert result.block_code == AGENTGUARD_INJECTION_DETECTED
+        assert result.block_code == AGENTMOAT_INJECTION_DETECTED
 
     def test_injection_flags_populated(self):
         interceptor = _make_interceptor()
@@ -214,7 +214,7 @@ class TestMCPInterceptorPolicy:
         request = _tools_call_request("write_file", {"path": "/tmp/out.txt"})
         result = interceptor.intercept(request)
         assert result.allowed is False
-        assert result.block_code == AGENTGUARD_POLICY_VIOLATION
+        assert result.block_code == AGENTMOAT_POLICY_VIOLATION
 
 
 # ---------------------------------------------------------------------------
@@ -289,7 +289,7 @@ class TestMCPProxyForwarding:
         resp = await proxy.handle(raw)
         upstream.send.assert_not_called()
         assert "error" in resp
-        assert resp["error"]["code"] == AGENTGUARD_INJECTION_DETECTED
+        assert resp["error"]["code"] == AGENTMOAT_INJECTION_DETECTED
 
     @pytest.mark.asyncio
     async def test_observe_mode_forwards_even_with_injection(self):

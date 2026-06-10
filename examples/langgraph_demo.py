@@ -4,7 +4,7 @@ Scenario
 --------
 A researcher agent reads a local document that contains hidden injection
 instructions, then passes its summary to a writer agent that has write_file
-access. AgentGuard detects the injection, degrades the trust score, and flags
+access. AgentMoat detects the injection, degrades the trust score, and flags
 the policy violation when the writer tries to act on the poisoned summary.
 
 Run::
@@ -38,8 +38,8 @@ except ImportError:
     print("langchain-anthropic not installed.\nRun: pip install langchain-anthropic")
     sys.exit(1)
 
-from agentguard import AgentGuardCallback, EventBus
-from agentguard.engine.trust import TrustScorer
+from agentmoat import AgentMoatCallback, EventBus
+from agentmoat.engine.trust import TrustScorer
 
 # ---------------------------------------------------------------------------
 # Shared infrastructure
@@ -52,7 +52,7 @@ SESSION_ID = "demo-langgraph-001"
 bus = EventBus()
 trust_scorer = TrustScorer()
 
-callback = AgentGuardCallback(
+callback = AgentMoatCallback(
     session_id=SESSION_ID,
     agent_id="researcher",
     bus=bus,
@@ -80,7 +80,7 @@ def researcher_node(state: GraphState) -> GraphState:
     """Read the document and produce a summary."""
     document = state["document"]
 
-    # Signal to AgentGuard that we're processing external content.
+    # Signal to AgentMoat that we're processing external content.
     callback.record_external_content(source_type="file")
     callback._current_node = "researcher"
 
@@ -178,8 +178,8 @@ def main() -> None:
         )
     )
 
-    print(f"\n[AgentGuard] Session {SESSION_ID} started")
-    print(f"[AgentGuard] Document length: {len(document)} chars")
+    print(f"\n[AgentMoat] Session {SESSION_ID} started")
+    print(f"[AgentMoat] Document length: {len(document)} chars")
     print("-" * 60)
 
     try:
@@ -187,7 +187,7 @@ def main() -> None:
         graph.invoke({"document": document, "summary": "", "output": ""})
     except Exception as exc:
         # Catch LLM errors (e.g., missing API key) so we can still print the report.
-        print(f"\n[AgentGuard] Graph error (expected in demo without API key): {exc}")
+        print(f"\n[AgentMoat] Graph error (expected in demo without API key): {exc}")
 
     _print_report()
 
@@ -202,7 +202,7 @@ def _print_report() -> None:
     )
 
     print("\n" + "━" * 42)
-    print(f"AgentGuard Session Report -- {SESSION_ID}")
+    print(f"AgentMoat Session Report -- {SESSION_ID}")
     print("=" * 42)
     print(f"Total events    : {report['total_events']}")
     print(f"Critical alerts : {report['critical_count']}")
@@ -216,7 +216,7 @@ def _print_report() -> None:
         print(f"Flags raised    : {', '.join(report['flags_seen'])}")
     print("=" * 42)
 
-    print("\n[AgentGuard] Event log:")
+    print("\n[AgentMoat] Event log:")
     for event in events:
         flag_str = f"  flags={event.flags}" if event.flags else ""
         print(

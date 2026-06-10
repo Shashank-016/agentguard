@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import threading
 
-from agentguard.bus import EventBus
-from agentguard.events import SecurityEvent
+from agentmoat.bus import EventBus
+from agentmoat.events import SecurityEvent
 
 
 class _FakeAsyncStore:

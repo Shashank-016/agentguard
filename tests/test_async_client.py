@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from agentguard import AsyncGuardedClient, EventBus
-from agentguard.client import AgentGuardException
+from agentmoat import AsyncGuardedClient, EventBus
+from agentmoat.client import AgentMoatException
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -132,7 +132,7 @@ class TestAsyncLLMCallEvent:
         mock_client = _mock_async_anthropic_client()
         bus = EventBus()
         gc = AsyncGuardedClient(mock_client, session_id="enforce1", bus=bus, mode="enforce")
-        with pytest.raises(AgentGuardException):
+        with pytest.raises(AgentMoatException):
             await gc.messages.create(
                 model="claude-haiku-4-5-20251001",
                 max_tokens=100,
@@ -193,7 +193,7 @@ class TestAsyncInjectionDetection:
         gc = AsyncGuardedClient(
             _mock_async_anthropic_client(), session_id="enf1", bus=bus, mode="enforce"
         )
-        with pytest.raises(AgentGuardException):
+        with pytest.raises(AgentMoatException):
             await gc.messages.create(
                 model="claude-haiku-4-5-20251001",
                 max_tokens=100,

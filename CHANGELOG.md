@@ -8,7 +8,7 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 - **Core instrumentation:** `GuardedClient` / `AsyncGuardedClient` (drop-in wrappers for the
-  Anthropic SDK, sync + async + streaming), `AgentGuardCallback` for LangGraph, and a unified
+  Anthropic SDK, sync + async + streaming), `AgentMoatCallback` for LangGraph, and a unified
   `SecurityEvent` bus with SQLite store and hash-chained JSONL audit logging.
 - **Detection engine:** prompt-injection detector (regex + optional embeddings), tool-policy
   engine (allow/deny + rate limits), and a cross-agent trust scorer.
@@ -16,7 +16,7 @@ All notable changes to this project are documented here. The format is based on
   MCP-compatible tool server with no agent code changes.
 - **Argument-level tool constraints:** path-traversal, SSRF, shell-metacharacter, and
   sensitive-path detection, plus configurable per-tool path/URL allow- and deny-lists.
-- **Tamper-evident audit log:** SHA-256 hash chaining with `agentguard audit verify`.
+- **Tamper-evident audit log:** SHA-256 hash chaining with `agentmoat audit verify`.
 - **Response controls:** `observe` / `enforce` / `interactive` modes, human-in-the-loop approval
   gate, and a process-wide kill switch (with HTTP control endpoints).
 - **OpenAI SDK support:** `GuardedOpenAI` / `AsyncGuardedOpenAI` reusing the same engine.
@@ -32,4 +32,4 @@ All notable changes to this project are documented here. The format is based on
 - Secret/PII redaction before persistence.
 - Timezone-aware timestamps throughout.
 
-[Unreleased]: https://github.com/Shashank-016/agentguard/commits/master
+[Unreleased]: https://github.com/Shashank-016/agentmoat/commits/master

@@ -1,8 +1,8 @@
 """
-MCP proxy demo — AgentGuard as a transparent MCP proxy.
+MCP proxy demo — AgentMoat as a transparent MCP proxy.
 
 What this shows:
-1. AgentGuard proxy starts, connecting to the real MCP filesystem server
+1. AgentMoat proxy starts, connecting to the real MCP filesystem server
 2. A simulated agent issues tool calls through the proxy
 3. Injection is detected in tool arguments when the agent tries to act on malicious content
 4. In enforce mode, the downstream write call is blocked with a policy/trust violation
@@ -20,11 +20,11 @@ import asyncio
 import tempfile
 from pathlib import Path
 
-from agentguard.bus import EventBus
-from agentguard.mcp.client import StdioUpstreamClient
-from agentguard.mcp.interceptor import MCPInterceptor
-from agentguard.mcp.proxy import MCPProxy
-from agentguard.store import EventStore
+from agentmoat.bus import EventBus
+from agentmoat.mcp.client import StdioUpstreamClient
+from agentmoat.mcp.interceptor import MCPInterceptor
+from agentmoat.mcp.proxy import MCPProxy
+from agentmoat.store import EventStore
 
 MALICIOUS_CONTENT = """
 QUARTERLY REPORT Q4 2025
@@ -61,7 +61,7 @@ async def main() -> None:
         proxy = MCPProxy(upstream=upstream, interceptor=interceptor, mode="enforce")
 
         print("=" * 60)
-        print("AgentGuard MCP Proxy Demo")
+        print("AgentMoat MCP Proxy Demo")
         print("=" * 60)
 
         # Try to start the upstream server (requires Node.js / npx)
@@ -80,7 +80,7 @@ async def main() -> None:
             print(f"\n[1] tools/list → {'OK' if 'result' in resp else 'ERROR'}")
         else:
             # Simulate intercept-only
-            from agentguard.mcp.models import MCPRequest
+            from agentmoat.mcp.models import MCPRequest
 
             req = MCPRequest(**list_req)
             result = interceptor.intercept(req)
@@ -101,7 +101,7 @@ async def main() -> None:
             resp = await proxy.handle(read_req)
             print(f"[2] read_file → {'OK' if 'result' in resp else 'BLOCKED'}")
         else:
-            from agentguard.mcp.models import MCPRequest
+            from agentmoat.mcp.models import MCPRequest
 
             req = MCPRequest(**read_req)
             result = interceptor.intercept(req)
@@ -126,7 +126,7 @@ async def main() -> None:
         if upstream_available:
             resp = await proxy.handle(write_req)
         else:
-            from agentguard.mcp.models import MCPRequest, MCPResponse
+            from agentmoat.mcp.models import MCPRequest, MCPResponse
 
             req = MCPRequest(**write_req)
             result = interceptor.intercept(req)
@@ -157,7 +157,7 @@ async def main() -> None:
         trust = interceptor._trust.score("mcp-demo-001")
 
         print("\n" + "=" * 60)
-        print("AgentGuard Session Report — mcp-demo-001")
+        print("AgentMoat Session Report — mcp-demo-001")
         print("=" * 60)
         print(f"Total events    : {len(events)}")
         print(f"Critical alerts : {sum(1 for e in events if e.severity == 'critical')}")

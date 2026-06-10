@@ -1,14 +1,14 @@
-# Contributing to AgentGuard
+# Contributing to AgentMoat
 
-Thanks for your interest in contributing. AgentGuard is a security layer for AI agents, and
+Thanks for your interest in contributing. AgentMoat is a security layer for AI agents, and
 contributions of all kinds are welcome — bug reports, detection patterns, framework adapters,
 docs, and tests.
 
 ## Development setup
 
 ```bash
-git clone https://github.com/Shashank-016/agentguard
-cd agentguard
+git clone https://github.com/Shashank-016/agentmoat
+cd agentmoat
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev,langgraph,openai]"
 ```
@@ -24,7 +24,7 @@ make demo        # run the MCP proxy attack demo
 make dashboard   # run the React dashboard (needs the API running)
 ```
 
-(or run the underlying commands directly: `pytest`, `ruff check .`, `mypy agentguard`)
+(or run the underlying commands directly: `pytest`, `ruff check .`, `mypy agentmoat`)
 
 ## Architecture
 

@@ -1,6 +1,6 @@
 """GuardedOpenAI / AsyncGuardedOpenAI — drop-in wrappers around the OpenAI SDK.
 
-Mirrors :mod:`agentguard.client` / :mod:`agentguard.async_client` for the OpenAI
+Mirrors :mod:`agentmoat.client` / :mod:`agentmoat.async_client` for the OpenAI
 Chat Completions API: the same injection scan → policy check → trust scoring →
 argument-constraint pipeline, the same event types, and the same ``mode``
 semantics (``observe`` / ``enforce`` / ``interactive``), adapted to OpenAI's
@@ -34,7 +34,7 @@ from .async_client import (
 )
 from .audit import AuditLogger
 from .bus import EventBus
-from .client import AgentGuardException, _dispatch_violation, _handle_engine_error, _raise_if_killed
+from .client import AgentMoatException, _dispatch_violation, _handle_engine_error, _raise_if_killed
 from .control import ApprovalGate, KillSwitch, get_default_kill_switch
 from .engine.injection import InjectionDetector
 from .engine.policy import ToolPolicyEngine
@@ -69,7 +69,7 @@ def _parse_tool_arguments(raw: Any) -> dict:
 
 
 def _violation_payloads(violations: Any) -> list[dict]:
-    """Serialize a list of :class:`~agentguard.engine.constraints.ConstraintViolation`
+    """Serialize a list of :class:`~agentmoat.engine.constraints.ConstraintViolation`
     for event payloads."""
     return [
         {"constraint": v.constraint, "argument": v.argument, "value": v.value, "detail": v.detail}
@@ -82,10 +82,10 @@ def _evaluate_openai_tool_call_sync(
 ) -> None:
     """Run the trust/policy/argument-constraint checks for one OpenAI function call.
 
-    Mirrors :func:`agentguard.client._evaluate_tool_use_sync` for the OpenAI
+    Mirrors :func:`agentmoat.client._evaluate_tool_use_sync` for the OpenAI
     response shape. Factored out so the whole security-evaluation section for
     a single tool call can be wrapped in one try/except at the call site —
-    see :func:`agentguard.client._handle_engine_error`.
+    see :func:`agentmoat.client._handle_engine_error`.
     """
     # Trust check before tool execution.
     if g._trust_scorer.should_flag(g.session_id, tool_name):
@@ -111,7 +111,7 @@ def _evaluate_openai_tool_call_sync(
             )
         )
         logger.warning(
-            "[AgentGuard] trust_flag: %s -> WARNING\n  reason: low-trust "
+            "[AgentMoat] trust_flag: %s -> WARNING\n  reason: low-trust "
             "session (score=%.2f) attempting %s",
             g.agent_id,
             trust_score,
@@ -156,10 +156,10 @@ def _evaluate_openai_tool_call_sync(
         )
     )
     if policy_result.allowed:
-        logger.info("[AgentGuard] tool_call: %s.%s -> INFO", g.agent_id, tool_name)
+        logger.info("[AgentMoat] tool_call: %s.%s -> INFO", g.agent_id, tool_name)
     else:
         logger.error(
-            "[AgentGuard] policy_violation: %s.%s -> CRITICAL\n  reason: %s",
+            "[AgentMoat] policy_violation: %s.%s -> CRITICAL\n  reason: %s",
             g.agent_id,
             tool_name,
             policy_result.reason,
@@ -186,7 +186,7 @@ def _evaluate_openai_tool_call_sync(
             )
         )
         logger.error(
-            "[AgentGuard] policy_violation: %s.%s -> CRITICAL\n  argument constraints: %s",
+            "[AgentMoat] policy_violation: %s.%s -> CRITICAL\n  argument constraints: %s",
             g.agent_id,
             tool_name,
             [v.detail for v in violations],
@@ -213,7 +213,7 @@ def _evaluate_openai_tool_call_sync(
 class GuardedChatCompletions:
     """Proxy for ``client.chat.completions`` that intercepts ``.create()`` calls.
 
-    Mirrors :class:`agentguard.client.GuardedMessages`: pre-call injection scan
+    Mirrors :class:`agentmoat.client.GuardedMessages`: pre-call injection scan
     and tool-definition policy checks, then post-call tool-call tracking (trust
     flags, policy checks, argument-constraint checks) for every function call
     the model returns.
@@ -278,7 +278,7 @@ class GuardedChatCompletions:
             )
         )
         logger.info(
-            "[AgentGuard] llm_call: %s -> INFO (%d tool definition(s) checked)",
+            "[AgentMoat] llm_call: %s -> INFO (%d tool definition(s) checked)",
             g.agent_id,
             len(tools),
         )
@@ -319,7 +319,7 @@ class GuardedChatCompletions:
                 )
             )
             logger.warning(
-                "[AgentGuard] injection_detected: %s -> %s\n  flags: %s\n  trust_score: %.2f",
+                "[AgentMoat] injection_detected: %s -> %s\n  flags: %s\n  trust_score: %.2f",
                 g.agent_id,
                 max_severity.upper(),
                 flags,
@@ -349,7 +349,7 @@ class GuardedChatCompletions:
                 )
             )
             logger.error(
-                "[AgentGuard] policy_violation: %s -> CRITICAL\n  %s",
+                "[AgentMoat] policy_violation: %s -> CRITICAL\n  %s",
                 g.agent_id,
                 "\n  ".join(policy_violations),
             )
@@ -375,7 +375,7 @@ class GuardedChatCompletions:
 
                 try:
                     _evaluate_openai_tool_call_sync(g, llm_event_id, tool_name, tool_input)
-                except AgentGuardException:
+                except AgentMoatException:
                     raise
                 except Exception as exc:
                     _handle_engine_error(
@@ -415,7 +415,7 @@ class GuardedOpenAI:
     Wraps the official OpenAI client, intercepting ``chat.completions.create``
     calls to perform injection detection, tool policy enforcement, trust
     scoring, and argument-constraint checking — the same pipeline as
-    :class:`~agentguard.client.GuardedClient`, adapted to the OpenAI Chat
+    :class:`~agentmoat.client.GuardedClient`, adapted to the OpenAI Chat
     Completions request/response shapes.
 
     Parameters
@@ -431,24 +431,24 @@ class GuardedOpenAI:
     policy_path:
         Path to a YAML policy file. If ``None``, all tools are permitted.
     bus:
-        Shared :class:`~agentguard.bus.EventBus`. If ``None``, a new bus is
+        Shared :class:`~agentmoat.bus.EventBus`. If ``None``, a new bus is
         created with no persistent store.
     mode:
         ``"observe"`` (default) — detect and log, but never block.
-        ``"enforce"`` — raise :class:`~agentguard.client.AgentGuardException` on any violation.
+        ``"enforce"`` — raise :class:`~agentmoat.client.AgentMoatException` on any violation.
         ``"interactive"`` — route violations through ``approval_gate`` for a
         human (or programmatic) decision; raises
-        :class:`~agentguard.client.AgentGuardException` if denied.
+        :class:`~agentmoat.client.AgentMoatException` if denied.
     trust_scorer:
-        Shared :class:`~agentguard.engine.trust.TrustScorer`.
+        Shared :class:`~agentmoat.engine.trust.TrustScorer`.
     use_embeddings:
         Pass ``True`` to enable the embedding-based injection detection pass.
     approval_gate:
-        :class:`~agentguard.control.ApprovalGate` used in ``mode="interactive"``.
+        :class:`~agentmoat.control.ApprovalGate` used in ``mode="interactive"``.
         If ``None``, a default gate (CLI y/N prompt) is created when needed.
     kill_switch:
-        Shared :class:`~agentguard.control.KillSwitch`. Defaults to the
-        process-wide singleton from :func:`~agentguard.control.get_default_kill_switch`.
+        Shared :class:`~agentmoat.control.KillSwitch`. Defaults to the
+        process-wide singleton from :func:`~agentmoat.control.get_default_kill_switch`.
     audit_log:
         Path to a JSONL audit file for durable event persistence.
 
@@ -457,7 +457,7 @@ class GuardedOpenAI:
     ::
 
         import openai
-        from agentguard import GuardedOpenAI
+        from agentmoat import GuardedOpenAI
 
         client = GuardedOpenAI(
             openai.OpenAI(),
@@ -502,7 +502,7 @@ class GuardedOpenAI:
         if audit_log is not None:
             self._audit_logger = AuditLogger(path=audit_log)
             self._bus.subscribe(self._audit_logger)
-            logger.info("[AgentGuard] Audit log -> %s", audit_log)
+            logger.info("[AgentMoat] Audit log -> %s", audit_log)
 
         self._bus.emit(
             SecurityEvent(
@@ -515,7 +515,7 @@ class GuardedOpenAI:
             )
         )
         logger.info(
-            "[AgentGuard] Session %s started (agent=%s, mode=%s)", self.session_id, agent_id, mode
+            "[AgentMoat] Session %s started (agent=%s, mode=%s)", self.session_id, agent_id, mode
         )
 
     @property
@@ -585,7 +585,7 @@ async def _evaluate_openai_tool_call_async(
             )
         )
         logger.warning(
-            "[AgentGuard] trust_flag: %s -> WARNING\n  reason: low-trust "
+            "[AgentMoat] trust_flag: %s -> WARNING\n  reason: low-trust "
             "session (score=%.2f) attempting %s",
             g.agent_id,
             trust_score,
@@ -630,10 +630,10 @@ async def _evaluate_openai_tool_call_async(
         )
     )
     if policy_result.allowed:
-        logger.info("[AgentGuard] tool_call: %s.%s -> INFO", g.agent_id, tool_name)
+        logger.info("[AgentMoat] tool_call: %s.%s -> INFO", g.agent_id, tool_name)
     else:
         logger.error(
-            "[AgentGuard] policy_violation: %s.%s -> CRITICAL\n  reason: %s",
+            "[AgentMoat] policy_violation: %s.%s -> CRITICAL\n  reason: %s",
             g.agent_id,
             tool_name,
             policy_result.reason,
@@ -660,7 +660,7 @@ async def _evaluate_openai_tool_call_async(
             )
         )
         logger.error(
-            "[AgentGuard] policy_violation: %s.%s -> CRITICAL\n  argument constraints: %s",
+            "[AgentMoat] policy_violation: %s.%s -> CRITICAL\n  argument constraints: %s",
             g.agent_id,
             tool_name,
             [v.detail for v in violations],
@@ -750,7 +750,7 @@ class AsyncGuardedChatCompletions:
             )
         )
         logger.info(
-            "[AgentGuard] llm_call: %s -> INFO (%d tool definition(s) checked)",
+            "[AgentMoat] llm_call: %s -> INFO (%d tool definition(s) checked)",
             g.agent_id,
             len(tools),
         )
@@ -791,7 +791,7 @@ class AsyncGuardedChatCompletions:
                 )
             )
             logger.warning(
-                "[AgentGuard] injection_detected: %s -> %s\n  flags: %s\n  trust_score: %.2f",
+                "[AgentMoat] injection_detected: %s -> %s\n  flags: %s\n  trust_score: %.2f",
                 g.agent_id,
                 max_severity.upper(),
                 flags,
@@ -821,7 +821,7 @@ class AsyncGuardedChatCompletions:
                 )
             )
             logger.error(
-                "[AgentGuard] policy_violation: %s -> CRITICAL\n  %s",
+                "[AgentMoat] policy_violation: %s -> CRITICAL\n  %s",
                 g.agent_id,
                 "\n  ".join(policy_violations),
             )
@@ -847,7 +847,7 @@ class AsyncGuardedChatCompletions:
 
                 try:
                     await _evaluate_openai_tool_call_async(g, llm_event_id, tool_name, tool_input)
-                except AgentGuardException:
+                except AgentMoatException:
                     raise
                 except Exception as exc:
                     await _handle_engine_error_async(
@@ -893,7 +893,7 @@ class AsyncGuardedOpenAI:
     ::
 
         import openai
-        from agentguard import AsyncGuardedOpenAI
+        from agentmoat import AsyncGuardedOpenAI
 
         client = AsyncGuardedOpenAI(openai.AsyncOpenAI(), agent_id="researcher")
 
@@ -933,7 +933,7 @@ class AsyncGuardedOpenAI:
         if audit_log is not None:
             self._audit_logger = AuditLogger(path=audit_log)
             self._bus.subscribe(self._audit_logger)
-            logger.info("[AgentGuard] Audit log -> %s", audit_log)
+            logger.info("[AgentMoat] Audit log -> %s", audit_log)
 
         # Emit session_start synchronously so it's visible even before the first await.
         self._bus.emit(
@@ -947,7 +947,7 @@ class AsyncGuardedOpenAI:
             )
         )
         logger.info(
-            "[AgentGuard] Async session %s started (agent=%s, mode=%s)",
+            "[AgentMoat] Async session %s started (agent=%s, mode=%s)",
             self.session_id,
             agent_id,
             mode,

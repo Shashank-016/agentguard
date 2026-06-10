@@ -7,13 +7,13 @@ test:
 	pytest -q
 
 cov:
-	pytest -q --cov=agentguard --cov-report=term-missing
+	pytest -q --cov=agentmoat --cov-report=term-missing
 
 lint:
 	ruff check .
 
 type:
-	mypy agentguard
+	mypy agentmoat
 
 format:
 	ruff format .

@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import pytest
 
-from agentguard.events import make_payload
-from agentguard.redaction import (
+from agentmoat.events import make_payload
+from agentmoat.redaction import (
     is_redaction_enabled,
     redact,
     redact_text,
@@ -146,40 +146,40 @@ class TestMakePayloadRedaction:
 
 
 # ---------------------------------------------------------------------------
-# Toggle: AGENTGUARD_REDACT env var + programmatic override
+# Toggle: AGENTMOAT_REDACT env var + programmatic override
 # ---------------------------------------------------------------------------
 
 
 class TestRedactionToggle:
     def test_enabled_by_default_when_unset(self, monkeypatch):
-        monkeypatch.delenv("AGENTGUARD_REDACT", raising=False)
+        monkeypatch.delenv("AGENTMOAT_REDACT", raising=False)
         assert is_redaction_enabled() is True
 
     @pytest.mark.parametrize("value", ["0", "false", "False", "no", "off", "OFF"])
     def test_env_var_falsy_values_disable_redaction(self, monkeypatch, value):
-        monkeypatch.setenv("AGENTGUARD_REDACT", value)
+        monkeypatch.setenv("AGENTMOAT_REDACT", value)
         assert is_redaction_enabled() is False
         # redact() is toggle-aware (unlike the raw redact_text() primitive).
         assert redact("sk-ABCDEFGHIJ1234567890abcdef") == "sk-ABCDEFGHIJ1234567890abcdef"
 
     @pytest.mark.parametrize("value", ["1", "true", "True", "yes", "on"])
     def test_env_var_truthy_values_enable_redaction(self, monkeypatch, value):
-        monkeypatch.setenv("AGENTGUARD_REDACT", value)
+        monkeypatch.setenv("AGENTMOAT_REDACT", value)
         assert is_redaction_enabled() is True
 
     def test_disabled_via_env_var_make_payload_keeps_raw_value(self, monkeypatch):
-        monkeypatch.setenv("AGENTGUARD_REDACT", "false")
+        monkeypatch.setenv("AGENTMOAT_REDACT", "false")
         payload = make_payload(message="my key is sk-ABCDEFGHIJ1234567890abcdef")
         assert payload["message"] == "my key is sk-ABCDEFGHIJ1234567890abcdef"
 
     def test_programmatic_override_takes_precedence_over_env_var(self, monkeypatch):
-        monkeypatch.setenv("AGENTGUARD_REDACT", "true")
+        monkeypatch.setenv("AGENTMOAT_REDACT", "true")
         set_redaction_enabled(False)
         assert is_redaction_enabled() is False
         assert redact("sk-ABCDEFGHIJ1234567890abcdef") == "sk-ABCDEFGHIJ1234567890abcdef"
 
     def test_clearing_override_falls_back_to_env_var(self, monkeypatch):
-        monkeypatch.setenv("AGENTGUARD_REDACT", "false")
+        monkeypatch.setenv("AGENTMOAT_REDACT", "false")
         set_redaction_enabled(True)
         assert is_redaction_enabled() is True
         set_redaction_enabled(None)

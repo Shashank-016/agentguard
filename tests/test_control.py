@@ -6,9 +6,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agentguard import EventBus, GuardedClient
-from agentguard.client import AgentGuardException, AgentGuardKilled
-from agentguard.control import (
+from agentmoat import EventBus, GuardedClient
+from agentmoat.client import AgentMoatException, AgentMoatKilled
+from agentmoat.control import (
     ApprovalGate,
     ApprovalRequest,
     KillSwitch,
@@ -16,9 +16,9 @@ from agentguard.control import (
     auto_deny_handler,
     get_default_kill_switch,
 )
-from agentguard.mcp.interceptor import MCPInterceptor
-from agentguard.mcp.models import AGENTGUARD_SESSION_KILLED, MCPRequest
-from agentguard.mcp.proxy import MCPProxy
+from agentmoat.mcp.interceptor import MCPInterceptor
+from agentmoat.mcp.models import AGENTMOAT_SESSION_KILLED, MCPRequest
+from agentmoat.mcp.proxy import MCPProxy
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -149,7 +149,7 @@ class TestInteractiveModeApproval:
             approval_gate=ApprovalGate(handler=auto_deny_handler),
             kill_switch=KillSwitch(),
         )
-        with pytest.raises(AgentGuardException):
+        with pytest.raises(AgentMoatException):
             gc.messages.create(model="claude-opus-4-7", messages=INJECTION_MESSAGES)
 
         events = bus.get_session_events("s1")
@@ -206,7 +206,7 @@ class TestGuardedClientKillSwitch:
         gc = GuardedClient(mock_client, session_id="s1", bus=bus, kill_switch=switch)
 
         switch.kill_session("s1")
-        with pytest.raises(AgentGuardKilled):
+        with pytest.raises(AgentMoatKilled):
             gc.messages.create(
                 model="claude-opus-4-7", messages=[{"role": "user", "content": "Hi"}]
             )
@@ -220,7 +220,7 @@ class TestGuardedClientKillSwitch:
         gc = GuardedClient(mock_client, session_id="s2", bus=bus, kill_switch=switch)
 
         switch.kill_all()
-        with pytest.raises(AgentGuardKilled):
+        with pytest.raises(AgentMoatKilled):
             gc.messages.create(
                 model="claude-opus-4-7", messages=[{"role": "user", "content": "Hi"}]
             )
@@ -232,7 +232,7 @@ class TestGuardedClientKillSwitch:
         gc = GuardedClient(mock_client, session_id="s1", bus=bus, kill_switch=switch)
 
         switch.kill_session("s1")
-        with pytest.raises(AgentGuardKilled):
+        with pytest.raises(AgentMoatKilled):
             gc.messages.create(
                 model="claude-opus-4-7", messages=[{"role": "user", "content": "Hi"}]
             )
@@ -274,7 +274,7 @@ class TestMCPKillSwitch:
         }
         response = await proxy.handle(raw_request)
 
-        assert response["error"]["code"] == AGENTGUARD_SESSION_KILLED
+        assert response["error"]["code"] == AGENTMOAT_SESSION_KILLED
         upstream.send.assert_not_called()
 
     def test_interceptor_short_circuits_on_kill(self):
@@ -294,5 +294,5 @@ class TestMCPKillSwitch:
         result = interceptor.intercept(request)
 
         assert result.allowed is False
-        assert result.block_code == AGENTGUARD_SESSION_KILLED
+        assert result.block_code == AGENTMOAT_SESSION_KILLED
         assert any(e.event_type == "session_end" for e in result.events)

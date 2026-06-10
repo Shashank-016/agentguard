@@ -1,4 +1,4 @@
-"""AgentGuard MCP (Model Context Protocol) proxy module.
+"""AgentMoat MCP (Model Context Protocol) proxy module.
 
 Provides a transparent MCP proxy that intercepts all tool calls between agents
 and MCP servers, applying injection detection, policy enforcement, and trust
@@ -8,9 +8,9 @@ scoring at the transport layer.
 from .client import SSEUpstreamClient, StdioUpstreamClient
 from .interceptor import InterceptResult, MCPInterceptor
 from .models import (
-    AGENTGUARD_INJECTION_DETECTED,
-    AGENTGUARD_POLICY_VIOLATION,
-    AGENTGUARD_TRUST_VIOLATION,
+    AGENTMOAT_INJECTION_DETECTED,
+    AGENTMOAT_POLICY_VIOLATION,
+    AGENTMOAT_TRUST_VIOLATION,
     MCPRequest,
     MCPResponse,
     MCPToolCallParams,
@@ -31,7 +31,7 @@ __all__ = [
     "MCPResponse",
     "MCPToolCallParams",
     "MCPToolDefinition",
-    "AGENTGUARD_INJECTION_DETECTED",
-    "AGENTGUARD_POLICY_VIOLATION",
-    "AGENTGUARD_TRUST_VIOLATION",
+    "AGENTMOAT_INJECTION_DETECTED",
+    "AGENTMOAT_POLICY_VIOLATION",
+    "AGENTMOAT_TRUST_VIOLATION",
 ]

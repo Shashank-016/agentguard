@@ -6,8 +6,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agentguard import EventBus, GuardedClient
-from agentguard.client import AgentGuardException
+from agentmoat import EventBus, GuardedClient
+from agentmoat.client import AgentMoatException
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -149,7 +149,7 @@ class TestInjectionDetection:
         bus = EventBus()
         mock_client = _mock_anthropic_client()
         gc = GuardedClient(mock_client, session_id="enf1", bus=bus, mode="enforce")
-        with pytest.raises(AgentGuardException):
+        with pytest.raises(AgentMoatException):
             gc.messages.create(
                 model="claude-haiku-4-5-20251001",
                 max_tokens=100,

@@ -25,10 +25,10 @@ class MCPProxy:
     Parameters
     ----------
     upstream:
-        A connected :class:`~agentguard.mcp.client.StdioUpstreamClient` or
-        :class:`~agentguard.mcp.client.SSEUpstreamClient`.
+        A connected :class:`~agentmoat.mcp.client.StdioUpstreamClient` or
+        :class:`~agentmoat.mcp.client.SSEUpstreamClient`.
     interceptor:
-        The :class:`~agentguard.mcp.interceptor.MCPInterceptor` that runs security checks.
+        The :class:`~agentmoat.mcp.interceptor.MCPInterceptor` that runs security checks.
     mode:
         ``"observe"``, ``"enforce"``, or ``"interactive"``.
     """
@@ -59,7 +59,7 @@ class MCPProxy:
         try:
             request = MCPRequest(**raw_request)
         except Exception as exc:
-            logger.warning("[AgentGuard/MCP] Invalid request: %s", exc)
+            logger.warning("[AgentMoat/MCP] Invalid request: %s", exc)
             return MCPResponse(
                 id=raw_request.get("id"),
                 error={"code": INVALID_REQUEST, "message": str(exc)},
@@ -69,7 +69,7 @@ class MCPProxy:
 
         if not result.allowed:
             logger.info(
-                "[AgentGuard/MCP] Request blocked: method=%s  reason=%s",
+                "[AgentMoat/MCP] Request blocked: method=%s  reason=%s",
                 request.method,
                 result.block_reason,
             )

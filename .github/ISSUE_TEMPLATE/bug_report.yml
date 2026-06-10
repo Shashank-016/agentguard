@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a problem with AgentGuard
+description: Report a problem with AgentMoat
 labels: [bug]
 body:
   - type: textarea
@@ -19,7 +19,7 @@ body:
   - type: input
     id: version
     attributes:
-      label: AgentGuard version / commit
+      label: AgentMoat version / commit
     validations:
       required: true
   - type: input

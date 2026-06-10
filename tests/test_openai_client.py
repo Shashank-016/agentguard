@@ -7,9 +7,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from agentguard import AsyncGuardedOpenAI, EventBus, GuardedOpenAI
-from agentguard.client import AgentGuardException, AgentGuardKilled
-from agentguard.control import KillSwitch
+from agentmoat import AsyncGuardedOpenAI, EventBus, GuardedOpenAI
+from agentmoat.client import AgentMoatException, AgentMoatKilled
+from agentmoat.control import KillSwitch
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -151,7 +151,7 @@ class TestInjectionDetection:
     def test_enforce_mode_raises_on_injection(self):
         mock_client = _mock_openai_client()
         gc = GuardedOpenAI(mock_client, session_id="inj3", mode="enforce")
-        with pytest.raises(AgentGuardException):
+        with pytest.raises(AgentMoatException):
             gc.chat.completions.create(model="gpt-4o", messages=INJECTION_MESSAGES)
 
     def test_observe_mode_does_not_raise(self):
@@ -233,7 +233,7 @@ class TestArgumentConstraints:
     def test_enforce_mode_raises_on_argument_violation(self):
         mock_client = _tool_call_openai_client("read_file", {"path": "../../etc/passwd"})
         gc = GuardedOpenAI(mock_client, session_id="arg2", mode="enforce")
-        with pytest.raises(AgentGuardException):
+        with pytest.raises(AgentMoatException):
             gc.chat.completions.create(
                 model="gpt-4o",
                 messages=[{"role": "user", "content": "Read a sensitive file."}],
@@ -252,7 +252,7 @@ class TestKillSwitch:
         switch.kill_session("killed1")
         mock_client = _mock_openai_client()
         gc = GuardedOpenAI(mock_client, session_id="killed1", kill_switch=switch)
-        with pytest.raises(AgentGuardKilled):
+        with pytest.raises(AgentMoatKilled):
             gc.chat.completions.create(model="gpt-4o", messages=[{"role": "user", "content": "Hi"}])
         mock_client.chat.completions.create.assert_not_called()
 
@@ -317,7 +317,7 @@ class TestAsyncLLMCallEvent:
     async def test_api_not_called_on_enforce_injection(self):
         mock_client = _mock_async_openai_client()
         gc = AsyncGuardedOpenAI(mock_client, session_id="allm2", mode="enforce")
-        with pytest.raises(AgentGuardException):
+        with pytest.raises(AgentMoatException):
             await gc.chat.completions.create(model="gpt-4o", messages=INJECTION_MESSAGES)
         mock_client.chat.completions.create.assert_not_called()
 
@@ -387,7 +387,7 @@ class TestAsyncKillSwitch:
         switch.kill_session("akilled1")
         mock_client = _mock_async_openai_client()
         gc = AsyncGuardedOpenAI(mock_client, session_id="akilled1", kill_switch=switch)
-        with pytest.raises(AgentGuardKilled):
+        with pytest.raises(AgentMoatKilled):
             await gc.chat.completions.create(
                 model="gpt-4o", messages=[{"role": "user", "content": "Hi"}]
             )

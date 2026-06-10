@@ -1,4 +1,4 @@
-"""AgentGuard FastAPI application — audit log REST API."""
+"""AgentMoat FastAPI application — audit log REST API."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from agentguard.store import EventStore
+from agentmoat.store import EventStore
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ def get_store() -> EventStore:
 # API key authentication
 # ---------------------------------------------------------------------------
 #
-# Set AGENTGUARD_API_KEY to require callers to present it via the
+# Set AGENTMOAT_API_KEY to require callers to present it via the
 # `X-API-Key` header or `Authorization: Bearer <key>`. If the env var is
 # unset, the API stays open — same as before this check existed — but logs a
 # warning on every request so an operator notices the gap. This keeps the
@@ -43,14 +43,14 @@ _WARNED_NO_API_KEY = False
 
 
 def _configured_api_key() -> str | None:
-    return os.getenv("AGENTGUARD_API_KEY") or None
+    return os.getenv("AGENTMOAT_API_KEY") or None
 
 
 async def require_api_key(
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
     authorization: str | None = Header(default=None),
 ) -> None:
-    """FastAPI dependency enforcing the optional ``AGENTGUARD_API_KEY``.
+    """FastAPI dependency enforcing the optional ``AGENTMOAT_API_KEY``.
 
     Accepts the key via ``X-API-Key: <key>`` or ``Authorization: Bearer <key>``.
     Raises 401 on a missing/incorrect key. If no key is configured, requests
@@ -61,8 +61,8 @@ async def require_api_key(
     if expected is None:
         if not _WARNED_NO_API_KEY:
             logger.warning(
-                "AGENTGUARD_API_KEY is not set — the audit API is running without "
-                "authentication. Set AGENTGUARD_API_KEY to require callers to "
+                "AGENTMOAT_API_KEY is not set — the audit API is running without "
+                "authentication. Set AGENTMOAT_API_KEY to require callers to "
                 "authenticate via the X-API-Key or Authorization header."
             )
             _WARNED_NO_API_KEY = True
@@ -90,13 +90,13 @@ async def require_api_key(
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     global _store
-    db_url = os.getenv("AGENTGUARD_DB_URL", "sqlite+aiosqlite:///agentguard.db")
+    db_url = os.getenv("AGENTMOAT_DB_URL", "sqlite+aiosqlite:///agentmoat.db")
     _store = EventStore(database_url=db_url)
     await _store.initialize()
-    logger.info("AgentGuard API started — store: %s", db_url)
+    logger.info("AgentMoat API started — store: %s", db_url)
     yield
     await _store.close()
-    logger.info("AgentGuard API shutdown")
+    logger.info("AgentMoat API shutdown")
 
 
 # ---------------------------------------------------------------------------
@@ -104,10 +104,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 # ---------------------------------------------------------------------------
 
 app = FastAPI(
-    title="AgentGuard Audit API",
+    title="AgentMoat Audit API",
     description=(
         "Real-time security observability for AI agents. "
-        "Query SecurityEvents emitted by GuardedClient and AgentGuardCallback instrumentation."
+        "Query SecurityEvents emitted by GuardedClient and AgentMoatCallback instrumentation."
     ),
     version="0.1.0",
     lifespan=lifespan,

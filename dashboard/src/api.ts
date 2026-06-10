@@ -1,4 +1,4 @@
-const KEY = import.meta.env.VITE_AGENTGUARD_API_KEY as string | undefined;
+const KEY = import.meta.env.VITE_AGENTMOAT_API_KEY as string | undefined;
 
 export function apiFetch(path: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers);

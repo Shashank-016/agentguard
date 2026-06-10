@@ -1,4 +1,4 @@
-"""AgentGuard — security observability for AI agents.
+"""AgentMoat — security observability for AI agents.
 
 Instruments LangGraph and Anthropic SDK agents to detect prompt injection,
 tool policy violations, and trust degradation in real-time.
@@ -6,7 +6,7 @@ tool policy violations, and trust degradation in real-time.
 Quick start::
 
     import anthropic
-    from agentguard import GuardedClient
+    from agentmoat import GuardedClient
 
     client = GuardedClient(
         anthropic.Anthropic(),
@@ -18,7 +18,7 @@ Quick start::
 Async usage::
 
     import anthropic
-    from agentguard import AsyncGuardedClient
+    from agentmoat import AsyncGuardedClient
 
     client = AsyncGuardedClient(
         anthropic.AsyncAnthropic(),
@@ -31,8 +31,8 @@ Async usage::
 from .async_client import AsyncGuardedClient
 from .audit import AuditLogger
 from .bus import EventBus
-from .callbacks import AgentGuardCallback
-from .client import AgentGuardException, AgentGuardKilled, GuardedClient
+from .callbacks import AgentMoatCallback
+from .client import AgentMoatException, AgentMoatKilled, GuardedClient
 from .control import ApprovalGate, ApprovalRequest, KillSwitch, get_default_kill_switch
 from .events import SecurityEvent
 from .openai_client import AsyncGuardedOpenAI, GuardedOpenAI
@@ -44,9 +44,9 @@ __all__ = [
     "AsyncGuardedClient",
     "GuardedOpenAI",
     "AsyncGuardedOpenAI",
-    "AgentGuardCallback",
-    "AgentGuardException",
-    "AgentGuardKilled",
+    "AgentMoatCallback",
+    "AgentMoatException",
+    "AgentMoatKilled",
     "ApprovalGate",
     "ApprovalRequest",
     "AuditLogger",

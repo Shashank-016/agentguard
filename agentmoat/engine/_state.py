@@ -1,6 +1,6 @@
 """Bounded, thread-safe in-memory state with TTL + LRU eviction.
 
-Shared by :class:`~agentguard.engine.trust.TrustScorer` and the policy
+Shared by :class:`~agentmoat.engine.trust.TrustScorer` and the policy
 engine's sliding-window rate limiter — both accumulate one entry per
 session/agent (and tool) for the lifetime of the process. Left unbounded, a
 long-running proxy serving many distinct sessions or agents leaks memory

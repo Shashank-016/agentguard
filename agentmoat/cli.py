@@ -1,4 +1,4 @@
-"""AgentGuard command-line interface."""
+"""AgentMoat command-line interface."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 @click.group()
 @click.option("--log-level", default="INFO", help="Logging level (DEBUG, INFO, WARNING, ERROR)")
 def cli(log_level: str) -> None:
-    """AgentGuard — security observability for AI agents."""
+    """AgentMoat — security observability for AI agents."""
     logging.basicConfig(
         level=getattr(logging, log_level.upper(), logging.INFO),
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -36,7 +36,7 @@ def audit_verify(path: str) -> None:
 
     Example::
 
-        agentguard audit verify agentguard_audit.jsonl
+        agentmoat audit verify agentmoat_audit.jsonl
     """
     from .audit import AuditLogger
 
@@ -61,7 +61,7 @@ def audit_tail(path: str, count: int) -> None:
 
     Example::
 
-        agentguard audit tail agentguard_audit.jsonl -n 50
+        agentmoat audit tail agentmoat_audit.jsonl -n 50
     """
     from .audit import AuditLogger
 
@@ -77,7 +77,7 @@ def audit_stats(path: str) -> None:
 
     Example::
 
-        agentguard audit stats agentguard_audit.jsonl
+        agentmoat audit stats agentmoat_audit.jsonl
     """
     import json as _json
     from collections import Counter
@@ -114,7 +114,7 @@ def mcp() -> None:
 
 @mcp.group()
 def proxy() -> None:
-    """Run AgentGuard as a transparent MCP proxy."""
+    """Run AgentMoat as a transparent MCP proxy."""
 
 
 @proxy.command()
@@ -143,7 +143,7 @@ def stdio(
 
     Example::
 
-        agentguard mcp proxy stdio \\
+        agentmoat mcp proxy stdio \\
             --upstream-cmd "npx -y @modelcontextprotocol/server-filesystem /tmp" \\
             --agent-id researcher \\
             --policy policy.yaml \\
@@ -176,7 +176,7 @@ def sse(
 
     Example::
 
-        agentguard mcp proxy sse \\
+        agentmoat mcp proxy sse \\
             --upstream-url http://mcp-server:3000 \\
             --port 8899 \\
             --agent-id researcher \\

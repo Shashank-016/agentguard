@@ -158,7 +158,7 @@ class ArgumentConstraintChecker:
     sensitive path access) run on every call when ``builtins_enabled`` is
     True. Per-tool constraints — path/URL allow- and deny-lists, max argument
     length, and argument substring deny-lists — are supplied via a
-    :class:`~agentguard.engine.policy.ToolConstraints` instance loaded from
+    :class:`~agentmoat.engine.policy.ToolConstraints` instance loaded from
     the policy file.
 
     Parameters

@@ -136,7 +136,7 @@ export default function App() {
       <header className="border-b border-gray-800 px-6 py-4 flex items-center justify-between">
         <div>
           <h1 className="text-lg font-bold text-white tracking-tight">
-            AgentGuard
+            AgentMoat
           </h1>
           <p className="text-xs text-gray-500">Security Observability for AI Agents</p>
         </div>

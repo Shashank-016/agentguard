@@ -82,7 +82,7 @@ def draw_title_bar(draw: ImageDraw.ImageDraw, font: ImageFont.FreeTypeFont) -> N
         cx = 22 + i * 22
         cy = TITLE_BAR_HEIGHT // 2
         draw.ellipse([(cx - 6, cy - 6), (cx + 6, cy + 6)], fill=color)
-    label = "agentguard mcp proxy demo"
+    label = "agentmoat mcp proxy demo"
     text_width = draw.textlength(label, font=font)
     draw.text(
         ((WIDTH - text_width) / 2, (TITLE_BAR_HEIGHT - FONT_SIZE) / 2 - 1),

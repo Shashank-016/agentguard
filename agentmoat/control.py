@@ -66,7 +66,7 @@ def _cli_prompt_handler(request: ApprovalRequest) -> ApprovalDecision:
 
     click.echo("")
     click.echo(
-        f"[AgentGuard] Approval required — session={request.session_id} agent={request.agent_id}"
+        f"[AgentMoat] Approval required — session={request.session_id} agent={request.agent_id}"
     )
     click.echo(f"  action: {request.action}")
     click.echo(f"  reason: {request.reason}")
@@ -110,11 +110,11 @@ class ApprovalGate:
         try:
             decision = self._handler(req)
         except Exception:
-            logger.exception("[AgentGuard] Approval handler raised — defaulting to deny")
+            logger.exception("[AgentMoat] Approval handler raised — defaulting to deny")
             return "deny"
         if decision not in ("approve", "deny"):
             logger.warning(
-                "[AgentGuard] Approval handler returned invalid decision %r — defaulting to deny",
+                "[AgentMoat] Approval handler returned invalid decision %r — defaulting to deny",
                 decision,
             )
             return "deny"
@@ -135,7 +135,7 @@ class KillSwitch:
     """Immediate halt control for agent sessions.
 
     A tripped session (or the global switch) causes the next intercepted
-    action in that session to raise :class:`~agentguard.client.AgentGuardKilled`
+    action in that session to raise :class:`~agentmoat.client.AgentMoatKilled`
     (or, for the MCP proxy, return a JSON-RPC error) before any API call or
     tool execution takes place.
 
@@ -152,26 +152,26 @@ class KillSwitch:
         """Trip the switch for a single session."""
         with self._lock:
             self._killed_sessions.add(session_id)
-        logger.warning("[AgentGuard] Kill switch tripped for session '%s'", session_id)
+        logger.warning("[AgentMoat] Kill switch tripped for session '%s'", session_id)
 
     def kill_all(self) -> None:
         """Trip the global switch — halts every session in this process."""
         with self._lock:
             self._global = True
-        logger.warning("[AgentGuard] Global kill switch tripped — all sessions halted")
+        logger.warning("[AgentMoat] Global kill switch tripped — all sessions halted")
 
     def revive_session(self, session_id: str) -> None:
         """Untrip a single session, restoring normal operation for it."""
         with self._lock:
             self._killed_sessions.discard(session_id)
-        logger.info("[AgentGuard] Session '%s' revived", session_id)
+        logger.info("[AgentMoat] Session '%s' revived", session_id)
 
     def reset(self) -> None:
         """Clear the global flag and every individually killed session."""
         with self._lock:
             self._killed_sessions.clear()
             self._global = False
-        logger.info("[AgentGuard] Kill switch reset")
+        logger.info("[AgentMoat] Kill switch reset")
 
     def is_killed(self, session_id: str) -> bool:
         """Return True if ``session_id`` is halted — globally or individually."""

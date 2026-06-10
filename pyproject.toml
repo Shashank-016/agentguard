@@ -3,13 +3,13 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "agentguard"
+name = "agentmoat"
 version = "0.1.0"
 description = "Security observability layer for LangGraph and Anthropic SDK AI agents"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
-authors = [{ name = "AgentGuard Contributors" }]
+authors = [{ name = "AgentMoat Contributors" }]
 keywords = ["ai", "agents", "security", "observability", "langgraph", "anthropic", "llm"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -56,19 +56,19 @@ dev = [
     "build",
 ]
 all = [
-    "agentguard[langgraph,embeddings,openai,dev]",
+    "agentmoat[langgraph,embeddings,openai,dev]",
 ]
 
 [project.scripts]
-agentguard = "agentguard.cli:cli"
+agentmoat = "agentmoat.cli:cli"
 
 [project.urls]
-Homepage = "https://github.com/Shashank-016/agentguard"
-Repository = "https://github.com/Shashank-016/agentguard"
-Issues = "https://github.com/Shashank-016/agentguard/issues"
+Homepage = "https://github.com/Shashank-016/agentmoat"
+Repository = "https://github.com/Shashank-016/agentmoat"
+Issues = "https://github.com/Shashank-016/agentmoat/issues"
 
 [tool.hatch.build.targets.wheel]
-packages = ["agentguard"]
+packages = ["agentmoat", "api"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

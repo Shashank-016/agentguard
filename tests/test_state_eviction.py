@@ -15,9 +15,9 @@ import time
 
 import pytest
 
-from agentguard.engine._state import BoundedStateStore
-from agentguard.engine.policy import ToolPolicyEngine
-from agentguard.engine.trust import TrustScorer
+from agentmoat.engine._state import BoundedStateStore
+from agentmoat.engine.policy import ToolPolicyEngine
+from agentmoat.engine.trust import TrustScorer
 
 # ---------------------------------------------------------------------------
 # BoundedStateStore — the shared primitive

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 
-from agentguard.audit import _GENESIS_HASH, AuditLogger, ChainVerificationResult
-from agentguard.events import SecurityEvent
+from agentmoat.audit import _GENESIS_HASH, AuditLogger, ChainVerificationResult
+from agentmoat.events import SecurityEvent
 
 
 def _make_event(event_type: str = "llm_call", severity: str = "info") -> SecurityEvent:

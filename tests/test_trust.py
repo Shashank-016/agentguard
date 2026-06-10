@@ -2,7 +2,7 @@
 
 import pytest
 
-from agentguard.engine.trust import EXTERNAL, TRUSTED, UNTRUSTED, TrustScorer
+from agentmoat.engine.trust import EXTERNAL, TRUSTED, UNTRUSTED, TrustScorer
 
 
 @pytest.fixture

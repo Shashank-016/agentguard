@@ -13,9 +13,9 @@ build/
 venv/
 env/
 
-# AgentGuard runtime files
-agentguard.db
-agentguard_audit.jsonl
+# AgentMoat runtime files
+agentmoat.db
+agentmoat_audit.jsonl
 *.jsonl
 *.db
 

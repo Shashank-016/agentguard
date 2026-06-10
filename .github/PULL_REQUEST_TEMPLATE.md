@@ -19,4 +19,4 @@
 
 ## Threat-model notes
 
-<!-- If this changes what AgentGuard detects, blocks, or trusts, describe the impact. -->
+<!-- If this changes what AgentMoat detects, blocks, or trusts, describe the impact. -->

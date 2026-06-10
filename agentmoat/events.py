@@ -1,4 +1,4 @@
-"""Core SecurityEvent model — the lingua franca of AgentGuard."""
+"""Core SecurityEvent model — the lingua franca of AgentMoat."""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ Source = Literal["sdk", "langgraph", "mcp", "openai"]
 class SecurityEvent(BaseModel):
     """A single auditable event emitted by an instrumented agent.
 
-    Events are the atomic unit of AgentGuard's observability model. Every LLM
+    Events are the atomic unit of AgentMoat's observability model. Every LLM
     call, tool invocation, injection detection, and policy check produces one
     event. Events may be chained causally via ``parent_event_id``.
     """
@@ -75,7 +75,7 @@ def make_payload(**kwargs: Any) -> dict[str, Any]:
     Redaction runs first so that masking placeholders (which are short and
     fixed-length) never get clipped by truncation, and so truncation can't
     accidentally split a secret in a way that defeats the pattern match.
-    Controlled by :data:`agentguard.redaction.is_redaction_enabled` —
-    see ``AGENTGUARD_REDACT`` in the module docs.
+    Controlled by :data:`agentmoat.redaction.is_redaction_enabled` —
+    see ``AGENTMOAT_REDACT`` in the module docs.
     """
     return _truncate(redact(kwargs))  # type: ignore[return-value]

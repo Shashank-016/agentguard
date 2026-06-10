@@ -1,5 +1,5 @@
 {
-  "name": "agentguard-dashboard",
+  "name": "agentmoat-dashboard",
   "version": "0.1.0",
   "private": true,
   "type": "module",

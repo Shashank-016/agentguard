@@ -250,3 +250,9 @@ class EventBus:
 
     def __len__(self) -> int:
         return len(self._buffer)
+
+    def __bool__(self) -> bool:
+        # Without this, an EventBus with an empty buffer (e.g. right after
+        # construction) is falsy via __len__, so `bus or EventBus()` would
+        # silently discard a valid, passed-in bus.
+        return True

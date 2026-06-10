@@ -12,7 +12,6 @@ import pytest
 from agentmoat.mcp.client import SSEUpstreamClient, StdioUpstreamClient
 from agentmoat.mcp.models import INTERNAL_ERROR, MCPRequest
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
